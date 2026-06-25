@@ -3,9 +3,11 @@ injected by the project loader (not constructible from YAML), so it is registere
 discoverability but the loader special-cases its construction."""
 from .within_tol import Objective, WithinTol
 from .prf1 import PRF1
+from .judge import Judge
 
 _REGISTRY = {"within_tol": WithinTol}
 _REGISTRY["prf1"] = PRF1
+_REGISTRY["judge"] = Judge
 
 
 def get_objective(name, params):

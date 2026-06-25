@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.venv/
 projects/*/data/
 projects/*/candidates/
 projects/*/holdout_access.log

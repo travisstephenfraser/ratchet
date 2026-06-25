@@ -26,9 +26,11 @@ def enforce_regime(project, constraints_version, ledger_path):
             changes = diff_payload(old, payload)
             if not _covered(changes, RegimeLedger(ledger_path).entries()):
                 lines = "\n".join(f"  {f}: {o!r} -> {n!r}" for f, o, n in changes)
-                sys.exit(f"regime changed without a ledger rationale:\n{lines}\n"
-                         f"Record it: python -m loop_eval.regime_cli --project "
-                         f"{project.config.project_dir} --why '...' --impact '...'")
+                msg = (f"regime changed without a ledger rationale:\n{lines}\n"
+                       f"Record it: python -m loop_eval.regime_cli --project "
+                       f"{project.config.project_dir} --why '...' --impact '...'")
+                print(msg, file=sys.stderr)
+                sys.exit(2)
     state_path.write_text(json.dumps(payload, sort_keys=True))
     return current
 

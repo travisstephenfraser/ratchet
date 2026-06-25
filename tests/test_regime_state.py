@@ -28,8 +28,9 @@ def test_silent_change_blocks_then_passes_after_bump(tmp_path):
     ledger = tmp_path / "regime_log.jsonl"
     enforce_regime(_proj(tmp_path, 1500), "c1", ledger)        # establish baseline
     proj2 = _proj(tmp_path, 4000)                              # silent frozen-param change
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         enforce_regime(proj2, "c1", ledger)
+    assert exc.value.code == 2
     record_bump(proj2, "c1", why="Qwen truncated", impact="re-baseline",
                 author="travis", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger)
     assert enforce_regime(proj2, "c1", ledger)                # now unblocked

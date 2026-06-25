@@ -64,6 +64,24 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
     log_holdout_access(log_path, "escalation_gate", best["cid"])
     if train_preds is None:
         train_preds = run_candidate_over(project, best["instructions"], train_ids, items, policy)
+    else:
+        # Caller-supplied train_preds must belong to the train split — catch wrong-split preds.
+        rogue = set(train_preds) - set(train_ids)
+        if rogue:
+            raise ValueError(
+                f"escalate: train_preds contains keys not in train_ids: {sorted(rogue)}"
+            )
     holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy)
+    # Guard against gross misalignment: non-empty id list but zero predictions produced.
+    if train_ids and not train_preds:
+        raise ValueError(
+            f"escalate: 0/{len(train_ids)} train items produced predictions — "
+            "likely a misaligned items dict"
+        )
+    if holdout_ids and not holdout_preds:
+        raise ValueError(
+            f"escalate: 0/{len(holdout_ids)} holdout items produced predictions — "
+            "likely a misaligned items dict"
+        )
     preds = {**train_preds, **holdout_preds}
     return gap_report(preds, truth, train_ids, holdout_ids, project.objective, project.config.guards)

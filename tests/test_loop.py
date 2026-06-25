@@ -51,6 +51,28 @@ def test_policy_constraint_changes_prediction():
     assert best["metrics"]["objective"] == 1.0
 
 
+def test_escalate_misaligned_items_raises(tmp_path):
+    """Zero-coverage case: items dict shares no keys with the splits -> ValueError."""
+    import pytest
+    with pytest.raises(ValueError, match="0/2 train items produced predictions"):
+        escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
+                 ["a", "b"], ["c", "d"], {},  # empty items — zero coverage
+                 {"a": "10", "b": "10", "c": "10", "d": "10"},
+                 log_path=tmp_path / "holdout_access.log")
+
+
+def test_escalate_wrong_split_preds_raises(tmp_path):
+    """Caller-supplied train_preds with keys outside train_ids -> ValueError."""
+    import pytest
+    with pytest.raises(ValueError, match="keys not in train_ids"):
+        escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
+                 ["a", "b"], ["c", "d"],
+                 {"a": {}, "b": {}, "c": {}, "d": {}},
+                 {"a": "10", "b": "10", "c": "10", "d": "10"},
+                 log_path=tmp_path / "holdout_access.log",
+                 train_preds={"c": "10", "d": "10"})  # holdout keys passed as train_preds
+
+
 def test_escalate_gap_gate(tmp_path):
     gate = escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
                     ["a", "b"], ["c", "d"], {"a": {}, "b": {}, "c": {}, "d": {}},

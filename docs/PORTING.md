@@ -40,3 +40,13 @@ Changing the salt, objective, guards, model, or eval-set contents changes the **
 Any scoring command BLOCKS until you record why:
 `python -m loop_eval.regime_cli --project projects/<name> --why "..." --impact "..."`.
 The version number points; the ledger explains. Cross-regime results are never pooled.
+
+## CLI reference
+
+All five entry points, one line each:
+
+- `python -m loop_eval.loop_cli --project projects/<name> [--escalate]` — hill-climb search on the train split; `--escalate` grades the winner on the holdout and runs the overfit gate.
+- `python -m loop_eval.bench_cli --project projects/<name>` — frozen-param bench comparison across model candidates on the eval set.
+- `python -m loop_eval.verify --project projects/<name> --predictions <csv> --split train|holdout|gap` — score predictions against ground truth; exits 2 on anomaly or overfit.
+- `python -m loop_eval.constraints_cli --project projects/<name> --review|--consolidate "<why>"` — constraints hygiene: flag contradictions and one-sided language, or record a consolidation.
+- `python -m loop_eval.regime_cli --project projects/<name> --why "..." --impact "..."` — record a regime bump so the next scoring command unblocks.

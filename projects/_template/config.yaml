@@ -1,0 +1,13 @@
+project: CHANGEME
+version: v1
+salt: CHANGEME-v1            # never change mid-experiment
+holdout_pct: 30
+runner: runner.py:Runner
+ingest: ingest.py:ingest
+mutations: mutations.py:MUTATIONS
+base_candidate: base.txt
+objective: {name: within_tol, params: {tol: 2.0}}   # within_tol | prf1 | judge | custom
+guards: {anomaly_at: 0.95, overfit_gap: 0.10}        # overfit_gap is a fraction in objective units
+search: {rounds: 6, patience: 3}
+model: {endpoint: "http://localhost:11434/api/chat", name: CHANGEME, temperature: 0, max_tokens: 4000}
+bench: {candidates: [], eval_set: data/eval_set.txt}

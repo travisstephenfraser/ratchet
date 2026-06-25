@@ -1,0 +1,2 @@
+You are <role>. Grade <task> against the rubric. Output: <shape>.
+Grade only what is written; do not fill in missing work.

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+projects/*/data/
+projects/*/candidates/
+projects/*/holdout_access.log
+projects/*/.regime
+projects/*/LOOP_LOG.md
+projects/*/bench_*.json
+projects/*/regime_log.jsonl
+projects/*/constraints_log.jsonl
+.DS_Store

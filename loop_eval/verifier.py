@@ -28,10 +28,12 @@ def split_ids(ids, salt, holdout_pct):
 
 
 def score_split(preds, truth, ids, objective, anomaly_at):
-    m = objective.score(preds, truth, ids)
-    val = m["objective"]
-    m["anomaly"] = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
-    return m
+    if objective.direction not in ("max", "min"):
+        raise ValueError(f"unknown objective direction: {objective.direction!r}")
+    base = objective.score(preds, truth, ids)
+    val = base["objective"]
+    anomaly = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
+    return {**base, "anomaly": anomaly}
 
 
 def gap_report(preds, truth, train, holdout, objective, guards):

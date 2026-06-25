@@ -1,3 +1,4 @@
+import pytest
 from loop_eval.verifier import split_ids, score_split, gap_report, load_column
 from loop_eval.objectives.within_tol import WithinTol
 
@@ -36,3 +37,12 @@ def test_load_column_autodetect(tmp_path):
     p = tmp_path / "t.csv"
     p.write_text("anon_id,score\nx,3\ny,4\n")
     assert load_column(p) == {"x": "3", "y": "4"}
+
+
+def test_score_split_rejects_bad_direction():
+    class _BadObj:
+        direction = "minimize"
+        def score(self, preds, truth, ids):
+            return {"objective": 0.5, "n": 1, "graded": 1}
+    with pytest.raises(ValueError, match="unknown objective direction"):
+        score_split({"a": "1"}, {"a": "1"}, ["a"], _BadObj(), anomaly_at=0.95)

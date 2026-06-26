@@ -1,7 +1,7 @@
 """Frozen-param bench: evaluate a fixed candidate set on the SAME frozen eval set under
 the SAME regime — no search. Every row carries one identical regime hash, AND the eval
 set is read from disk (not 'whatever ingest returned'), so the comparison is provably
-same-regime AND same-items (the MODEL_EVAL.md guarantee, enforced not remembered)."""
+same-regime AND same-items — the comparability guarantee, enforced not remembered."""
 from pathlib import Path
 
 from .verifier import score_split

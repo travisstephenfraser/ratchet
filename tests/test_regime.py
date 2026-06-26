@@ -62,7 +62,7 @@ def test_guard_raises_on_mismatch():
 def test_ledger_roundtrip(tmp_path):
     led = RegimeLedger(tmp_path / "regime_log.jsonl")
     led.record(version="v2", changed=[("frozen.model.max_tokens", 1500, 4000)],
-               why="Qwen truncated", impact="re-baseline all", author="travis",
+               why="Qwen truncated", impact="re-baseline all", author="reviewer",
                timestamp="2026-06-25T00:00:00Z")
     assert led.entries()[0]["version"] == "v2"
     assert led.entries()[0]["changed"][0]["new"] == 4000

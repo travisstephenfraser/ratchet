@@ -11,7 +11,7 @@ def main():
     ap.add_argument("--project", required=True)
     ap.add_argument("--why", required=True)
     ap.add_argument("--impact", default="")
-    ap.add_argument("--author", default="travis")
+    ap.add_argument("--author", default="author")
     args = ap.parse_args()
     proj = load_project(Path(args.project))
     cv = current_version(Path(args.project) / "constraints.jsonl")

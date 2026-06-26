@@ -1,7 +1,6 @@
 """Persist results to disk, every one stamped with the regime that produced it — the
-substrate the regime guard reads to detect a change, and the traceability the spec
-requires. Mirrors loop-eng/harness.py's candidates/*.{txt,preds.csv,metrics.json} +
-LOOP_LOG.md."""
+substrate the regime guard reads to detect a change, and the traceability the design
+requires. Layout: candidates/*.{txt,preds.csv,metrics.json} + LOOP_LOG.md."""
 import csv
 import json
 from pathlib import Path

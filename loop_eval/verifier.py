@@ -1,7 +1,7 @@
-"""Generalized scorer.py. Split discipline (stable hash split, holdout vault,
-missing-as-miss) and anti-leak guards (anomaly, overfit) are objective-agnostic and
-direction-aware. The anomaly (verifier-leak) flag is surfaced at the top level of the
-gap report — harness.py re-checked it at the gate so a leak is loud, not buried."""
+"""The scorer. Split discipline (stable hash split, holdout vault, missing-as-miss)
+and anti-leak guards (anomaly, overfit) are objective-agnostic and direction-aware.
+The anomaly (verifier-leak) flag is surfaced at the top level of the gap report and
+re-checked at the escalation gate, so a leak is loud, not buried."""
 import csv
 import hashlib
 from datetime import datetime, timezone

@@ -9,6 +9,7 @@ def main():
     ap.add_argument("--project", required=True)
     ap.add_argument("--review", action="store_true")
     ap.add_argument("--consolidate", metavar="WHY")
+    ap.add_argument("--author", default="author")
     args = ap.parse_args()
     cpath = Path(args.project) / "constraints.jsonl"
     report = review(cpath)
@@ -18,7 +19,7 @@ def main():
         ts = datetime.now(timezone.utc).isoformat()
         ConstraintsLedger(Path(args.project) / "constraints_log.jsonl").record(
             version="manual", changed=report or ["(no flags)"], why=args.consolidate,
-            author="travis", timestamp=ts)
+            author=args.author, timestamp=ts)
         print("recorded consolidation in constraints_log.jsonl")
 
 

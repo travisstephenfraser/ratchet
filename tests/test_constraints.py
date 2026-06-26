@@ -5,7 +5,7 @@ from loop_eval.constraints import (
 
 def test_add_and_load(tmp_path):
     p = tmp_path / "constraints.jsonl"
-    add_constraint(p, "State both costs of escalation.", "travis", "2026-06-25T00:00:00Z")
+    add_constraint(p, "State both costs of escalation.", "reviewer", "2026-06-25T00:00:00Z")
     add_constraint(p, "Grade only what is written.", "claude", "2026-06-25T00:01:00Z")
     block = load_constraints(p)
     assert "State both costs" in block and "Grade only what is written" in block
@@ -35,5 +35,5 @@ def test_empty_when_no_file(tmp_path):
 def test_constraints_ledger_roundtrip(tmp_path):
     led = ConstraintsLedger(tmp_path / "constraints_log.jsonl")
     led.record(version="c2", changed=["removed dup 'NEVER...'", "merged lenient rules"],
-               why="contradiction accumulation", author="travis", timestamp="2026-06-25T00:00:00Z")
+               why="contradiction accumulation", author="reviewer", timestamp="2026-06-25T00:00:00Z")
     assert led.entries()[0]["changed"][0].startswith("removed")

@@ -1,7 +1,7 @@
-"""Numeric-closeness objective — ports scorer.py's within-tolerance logic, plus the
-harness.py lesson that within-rate ceilings on easy questions (no gradient), so MAE
-is the climb signal there. `climb` selects which scalar the loop climbs. Missing
-predictions are misses: denominator is the full id list."""
+"""Numeric-closeness objective. Within-rate ceilings on easy items (no gradient once
+everything is inside tolerance), so MAE is the climb signal there. `climb` selects
+which scalar the loop climbs. Missing predictions are misses: denominator is the full
+id list."""
 import statistics
 
 

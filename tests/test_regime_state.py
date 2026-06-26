@@ -32,5 +32,5 @@ def test_silent_change_blocks_then_passes_after_bump(tmp_path):
         enforce_regime(proj2, "c1", ledger)
     assert exc.value.code == 2
     record_bump(proj2, "c1", why="Qwen truncated", impact="re-baseline",
-                author="travis", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger)
+                author="reviewer", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger)
     assert enforce_regime(proj2, "c1", ledger)                # now unblocked

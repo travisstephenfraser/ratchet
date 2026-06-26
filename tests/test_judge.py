@@ -1,4 +1,4 @@
-from loop_eval.objectives.judge import Judge
+from ratchet.objectives.judge import Judge
 
 
 def test_judge_means_injected_scores():

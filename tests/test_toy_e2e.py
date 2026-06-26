@@ -1,9 +1,9 @@
 from pathlib import Path
-from loop_eval.project import load_project
-from loop_eval.verifier import split_ids
-from loop_eval.loop import hill_climb, escalate
-from loop_eval.constraints import load_constraints, current_version
-from loop_eval.regime import regime_payload, regime_hash
+from ratchet.project import load_project
+from ratchet.verifier import split_ids
+from ratchet.loop import hill_climb, escalate
+from ratchet.constraints import load_constraints, current_version
+from ratchet.regime import regime_payload, regime_hash
 
 TOY = Path(__file__).parent.parent / "projects" / "toy"
 

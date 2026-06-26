@@ -1,7 +1,7 @@
 """Synthetic grader. Calls assemble() so the e2e exercises structured prompt assembly,
 then computes a deterministic grade. Leniency comes from the candidate OR the active
 policy (constraints) — so the run path covers both the search and the feedback channel."""
-from loop_eval.prompt import assemble
+from ratchet.prompt import assemble
 
 
 class Runner:

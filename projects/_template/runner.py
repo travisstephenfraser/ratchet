@@ -2,7 +2,7 @@
 - Prepend `policy` (active constraints) to the prompt via assemble().
 - FAIL LOUD: if you can't parse the model response, RAISE — never return a silent 0.
 - Do arithmetic (sums, clamps) HERE; the model emits judgments only."""
-from loop_eval.prompt import assemble
+from ratchet.prompt import assemble
 
 
 class Runner:

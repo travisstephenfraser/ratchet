@@ -1,4 +1,4 @@
-from loop_eval.config import load_config
+from ratchet.config import load_config
 
 
 def test_load_config_parses_objective_and_levers(tmp_path):

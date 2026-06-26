@@ -1,5 +1,5 @@
-from loop_eval.bench import bench, load_eval_ids
-from loop_eval.objectives.within_tol import WithinTol
+from ratchet.bench import bench, load_eval_ids
+from ratchet.objectives.within_tol import WithinTol
 
 
 class _Project:

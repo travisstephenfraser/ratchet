@@ -1,5 +1,5 @@
-from loop_eval.objectives import get_objective
-from loop_eval.objectives.within_tol import WithinTol
+from ratchet.objectives import get_objective
+from ratchet.objectives.within_tol import WithinTol
 
 
 def test_within_counts_missing_as_miss():

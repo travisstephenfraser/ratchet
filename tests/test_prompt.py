@@ -1,4 +1,4 @@
-from loop_eval.prompt import assemble
+from ratchet.prompt import assemble
 
 
 def test_assemble_separates_concerns():

@@ -1,5 +1,5 @@
-from loop_eval.objectives import get_objective
-from loop_eval.objectives.prf1 import PRF1
+from ratchet.objectives import get_objective
+from ratchet.objectives.prf1 import PRF1
 
 
 def test_f1_simple():

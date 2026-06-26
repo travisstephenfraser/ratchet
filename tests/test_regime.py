@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
-from loop_eval.config import Config, ObjectiveCfg
-from loop_eval.regime import (
+from ratchet.config import Config, ObjectiveCfg
+from ratchet.regime import (
     regime_payload, regime_hash, diff_payload, guard_compare, RegimeMismatch, RegimeLedger,
 )
 

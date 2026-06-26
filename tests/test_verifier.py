@@ -1,6 +1,6 @@
 import pytest
-from loop_eval.verifier import split_ids, score_split, gap_report, load_column
-from loop_eval.objectives.within_tol import WithinTol
+from ratchet.verifier import split_ids, score_split, gap_report, load_column
+from ratchet.objectives.within_tol import WithinTol
 
 
 def test_split_stable_and_disjoint():

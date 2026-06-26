@@ -1,6 +1,6 @@
 import pytest
-from loop_eval.project import load_project
-from loop_eval.regime_state import enforce_regime, record_bump
+from ratchet.project import load_project
+from ratchet.regime_state import enforce_regime, record_bump
 from tests.test_project import _base, _cfg  # reuse fixtures
 
 

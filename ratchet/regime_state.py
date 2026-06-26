@@ -27,7 +27,7 @@ def enforce_regime(project, constraints_version, ledger_path):
             if not _covered(changes, RegimeLedger(ledger_path).entries()):
                 lines = "\n".join(f"  {f}: {o!r} -> {n!r}" for f, o, n in changes)
                 msg = (f"regime changed without a ledger rationale:\n{lines}\n"
-                       f"Record it: python -m loop_eval.regime_cli --project "
+                       f"Record it: python -m ratchet.regime_cli --project "
                        f"{project.config.project_dir} --why '...' --impact '...'")
                 print(msg, file=sys.stderr)
                 sys.exit(2)

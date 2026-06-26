@@ -1,5 +1,5 @@
-from loop_eval.loop import cand_id, better, hill_climb, escalate, run_candidate_over
-from loop_eval.objectives.within_tol import WithinTol
+from ratchet.loop import cand_id, better, hill_climb, escalate, run_candidate_over
+from ratchet.objectives.within_tol import WithinTol
 
 
 class _Project:

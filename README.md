@@ -1,4 +1,4 @@
-# loop-eval
+# ratchet
 
 A small, portable scaffold for **evaluating and improving LLM prompts and models against your own ground truth**, with the comparability guarantees that make the numbers trustworthy.
 
@@ -21,20 +21,20 @@ Most teams that tune an LLM prompt end up hand-rolling the same scaffolding: a s
 - Someone changes the model, the tolerance, or the eval set, and yesterday's score is silently compared against today's under different rules.
 - Reviewer feedback gets pasted into the prompt as `NEVER DO X`, the prompt rots into a contradictory ban-list, and strong models start ignoring all of it.
 
-loop-eval makes each of those failure modes either impossible or loud. The design choices below are all in service of *the score means what you think it means*.
+ratchet makes each of those failure modes either impossible or loud. The design choices below are all in service of *the score means what you think it means*.
 
 ---
 
 ## Architecture: a stable core, a thin per-project layer
 
 ```
-loop_eval/            # the core — you import it, you never edit it
+ratchet/            # the core — you import it, you never edit it
 projects/<name>/      # the per-project layer — you write this
 ```
 
-The core has no knowledge of your domain. A project supplies five small adapters and a config file; the core supplies the split discipline, the guards, the objectives, the search loop, the persistence, and the versioning. Porting to a new domain means copying `projects/_template/` and filling in the adapters, never touching `loop_eval/`.
+The core has no knowledge of your domain. A project supplies five small adapters and a config file; the core supplies the split discipline, the guards, the objectives, the search loop, the persistence, and the versioning. Porting to a new domain means copying `projects/_template/` and filling in the adapters, never touching `ratchet/`.
 
-The five adapters a project implements (by shape, not by import; see `loop_eval/adapter.py`):
+The five adapters a project implements (by shape, not by import; see `ratchet/adapter.py`):
 
 | File | Contract |
 |---|---|
@@ -67,7 +67,9 @@ Every score carries two flags:
 - **anomaly** — the result is implausibly good (above `anomaly_at`), the classic signature of a verifier leak where the answer is reachable from the input.
 - **overfit** — the train-vs-holdout gap exceeds `overfit_gap`, the signature of memorization.
 
-Both respect the objective's direction (`max` for within-tolerance/F1/judge, `min` for MAE), so "better" is never hard-coded. `verify --split gap` and the escalation gate exit `2` when either trips, so CI catches it.
+Both respect the objective's direction (`max` for within-tolerance/F1/judge, `min` for MAE), so "better" is never hard-coded.
+
+**The exit code lives in `verify`, not the loop.** `verify` is the gate: it exits `2` when either flag trips, so it's the thing you wire into CI. The `loop` surfaces the same flags in its output and on the escalation report, but it exits `0` regardless — it's a search tool that explores, and explorers are allowed to find candidates that trip a guard. The discipline is: **search with `loop`, gate with `verify`.** Don't gate on the loop's exit code; have CI run `verify` against the candidate the loop produced.
 
 ### Objectives are pluggable, and they own their direction
 
@@ -98,7 +100,7 @@ Any scoring command computes the current regime and compares it to the last one 
 ```
 regime changed without a ledger rationale:
   frozen.model.name: 'qwen2.5' -> 'qwen3'
-Record it: python -m loop_eval.regime_cli --project projects/<name> --why '...' --impact '...'
+Record it: python -m ratchet.regime_cli --project projects/<name> --why '...' --impact '...'
 ```
 
 Cross-regime results are never pooled. The version number points; the ledger explains. This turns "don't silently change the frozen params" from a discipline you have to remember into something the core won't let you skip.
@@ -118,13 +120,13 @@ The repo ships a self-contained **toy project** (`projects/toy/`) with 40 determ
 
 ```bash
 # Improve: hill-climb the grading prompt on the train split, then escalate the winner
-python -m loop_eval.loop_cli --project projects/toy --escalate
+python -m ratchet.loop_cli --project projects/toy --escalate
 
 # Defend: score predictions against ground truth (exits 2 on anomaly/overfit)
-python -m loop_eval.verify --project projects/toy --predictions <preds.csv> --split gap
+python -m ratchet.verify --project projects/toy --predictions <preds.csv> --split gap
 
 # Bench: compare fixed candidates on one frozen set under one regime
-python -m loop_eval.bench_cli --project projects/toy
+python -m ratchet.bench_cli --project projects/toy
 ```
 
 The toy exercises the real code path end to end: structured prompt assembly, the policy/constraints channel, the hill-climb, persistence with regime stamps, and the holdout gate.
@@ -152,18 +154,18 @@ cp -r projects/_template projects/my-eval
 
 | Command | What it does |
 |---|---|
-| `python -m loop_eval.loop_cli --project <p> [--escalate]` | Hill-climb search on the train split; `--escalate` grades the winner on the holdout and runs the overfit gate. |
-| `python -m loop_eval.verify --project <p> --predictions <csv> --split train\|holdout\|gap` | Score predictions against ground truth; exits 2 on anomaly or overfit. |
-| `python -m loop_eval.bench_cli --project <p>` | Frozen-param comparison of fixed candidates on the eval set, under one enforced regime. |
-| `python -m loop_eval.constraints_cli --project <p> --review \| --consolidate "<why>"` | Constraints hygiene: flag contradictions and one-sided language, or record a consolidation. |
-| `python -m loop_eval.regime_cli --project <p> --why "..." --impact "..."` | Record a regime bump so the next scoring command unblocks. |
+| `python -m ratchet.loop_cli --project <p> [--escalate]` | Hill-climb search on the train split; `--escalate` grades the winner on the holdout and runs the overfit gate. |
+| `python -m ratchet.verify --project <p> --predictions <csv> --split train\|holdout\|gap` | Score predictions against ground truth; exits 2 on anomaly or overfit. |
+| `python -m ratchet.bench_cli --project <p>` | Frozen-param comparison of fixed candidates on the eval set, under one enforced regime. |
+| `python -m ratchet.constraints_cli --project <p> --review \| --consolidate "<why>"` | Constraints hygiene: flag contradictions and one-sided language, or record a consolidation. |
+| `python -m ratchet.regime_cli --project <p> --why "..." --impact "..."` | Record a regime bump so the next scoring command unblocks. |
 
 ---
 
 ## Repository layout
 
 ```
-loop_eval/              core (do not edit per-project)
+ratchet/              core (do not edit per-project)
   adapter.py            the five seam contracts a project satisfies
   config.py             typed load of config.yaml
   prompt.py             structured policy / instructions / data assembly

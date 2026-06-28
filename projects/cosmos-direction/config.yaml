@@ -1,0 +1,20 @@
+project: cosmos-direction
+version: v1
+salt: cosmos-direction-v1          # never change mid-experiment
+holdout_pct: 30
+runner: runner.py:Runner
+ingest: ingest.py:ingest
+mutations: mutations.py:MUTATIONS
+base_candidate: base.txt
+# Binary descent-detection: positive = DOWNHILL. A model that hallucinates UPHILL
+# on a descent is a recall miss -- the exact failure this project guards against.
+objective: {name: prf1, params: {positive_label: DOWNHILL}}
+# anomaly_at: a near-perfect PIXEL-ONLY score is the cue-leak signature (the Gemma
+# 6/6 -> 3/6 artifact). For a GROUNDED compliance run the answer is in the preamble
+# by design, so ~1.0 is expected -- read f1 there, the anomaly flag is informational.
+guards: {anomaly_at: 0.98, overfit_gap: 0.25}
+search: {rounds: 4, patience: 2}
+# model.name is part of the regime fingerprint: changing it (or COSMOS_VLM_MODEL on
+# the runner) is a regime bump and must be recorded before results pool.
+model: {name: gemma-4-31b-it-mlx@8bit, temperature: 0, max_tokens: 256}
+bench: {candidates: [], eval_set: data/eval_set.txt}

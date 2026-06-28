@@ -1,3 +1,4 @@
+First read the GRADIENT value provided above and state its sign, then give a DIRECTION that matches that sign.
 Report the rider's direction of travel in this mountain-bike chest-cam frame.
 Answer in exactly this format, one line, nothing else:
 DIRECTION: <DOWNHILL|UPHILL|FLAT>

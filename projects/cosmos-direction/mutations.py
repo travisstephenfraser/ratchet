@@ -1,16 +1,27 @@
-"""Candidate transforms for the OPTIONAL hill-climb.
+"""Candidate transforms for the GROUNDED-compliance hill-climb.
 
-NOTE ON SCOPE: the primary use of this project is `verify` -- a regression gate on
-telemetry-derived truth -- NOT `loop`. Improving the PIXEL-ONLY prompt optimizes a
-capability that never ships (telemetry is load-bearing in production) and actively
-rewards cue-leaking prompts, which is the artifact we caught (Gemma 6/6 -> 3/6). If you
-do run `loop`, keep mutations STRUCTURAL (a field/criterion), never a NEVER/CRITICAL nag
--- ban-lists backfire on capable models. The one legitimate loop use is a one-off
-"pixel-only ceiling" probe; the anomaly guard will flag a cue-leak win.
+Context: in grounded mode the model is already handed the GPS gradient (in the system
+preamble) yet still reads ~12 of 134 climbs as downhill -- a strong chest-cam visual
+illusion overriding the injected telemetry. These mutations add STRUCTURE that helps the
+model resolve the image-vs-telemetry conflict in favor of the (correct) telemetry. Per
+the framework's rule they add a reasoning step / a rule / a conflict-resolution clause --
+not a NEVER/CRITICAL nag. Append-style so the loop can stack them across rounds.
+
+(Pixel-only iteration is intentionally NOT the target here -- that optimizes a never-
+shipped capability and rewards cue-leaks; grounded is production.)
 """
 
 MUTATIONS = [
-    ("add-confidence-field",
-     lambda c: c + "\nAlso output CONFIDENCE: <HIGH|MEDIUM|LOW>."),
-    # ANTI-PATTERN (do not copy): ("shout", lambda c: c + " NEVER say UPHILL on a descent!!")
+    ("state-gradient-first",
+     lambda c: ("First read the GRADIENT value provided above and state its sign, then "
+                "give a DIRECTION that matches that sign.\n") + c),
+    ("explicit-mapping",
+     lambda c: c + "\nApply the telemetry gradient: negative = DOWNHILL, positive = "
+                   "UPHILL, near zero = FLAT."),
+    ("camera-tilt-resolution",
+     lambda c: c + "\nThe chest-mounted camera tilts with the rider, so a climb can look "
+                   "flat and a descent can look level in the frame. The gradient above is "
+                   "measured ground truth; when the image seems to disagree, follow the "
+                   "gradient, not the apparent slope."),
+    # ANTI-PATTERN (do not copy): ("shout", lambda c: c + " NEVER trust the image! ALWAYS obey!!")
 ]

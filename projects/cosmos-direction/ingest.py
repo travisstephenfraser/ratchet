@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from pathlib import Path
 
 DEFAULT_RESULTS_ROOT = (
@@ -88,4 +89,18 @@ def ingest():
     if not truth:
         raise RuntimeError(
             "no telemetry.json frames found; set COSMOS_RESULTS_ROOT or COSMOS_RUNS")
+
+    # COSMOS_MAX_PER_CLIP: evenly subsample to N frames per clip for a fast, balanced
+    # dev bench during prompt iteration (loop). Deterministic. Unset = full bench (gate).
+    cap = int(os.environ.get("COSMOS_MAX_PER_CLIP", "0"))
+    if cap > 0:
+        by_clip = {}
+        for k in sorted(truth):
+            by_clip.setdefault(k.split("/")[0], []).append(k)
+        keep = set()
+        for ks in by_clip.values():
+            step = max(1, len(ks) // cap)
+            keep.update(ks[::step][:cap])
+        items = {k: items[k] for k in keep}
+        truth = {k: truth[k] for k in keep}
     return items, truth

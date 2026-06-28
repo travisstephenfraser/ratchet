@@ -6,9 +6,10 @@ runner: runner.py:Runner
 ingest: ingest.py:ingest
 mutations: mutations.py:MUTATIONS
 base_candidate: base.txt
-# Binary descent-detection: positive = DOWNHILL. A model that hallucinates UPHILL
-# on a descent is a recall miss -- the exact failure this project guards against.
-objective: {name: prf1, params: {positive_label: DOWNHILL}}
+# 3-class direction accuracy (objective.py). prf1/DOWNHILL is the clean descent gate,
+# but prompt iteration targets OVERALL direction correctness (climbs + flats too), so
+# the loop climbs exact-match accuracy. Swap back to prf1 for the descent-only gate.
+objective: {name: custom, params: {}}
 # anomaly_at: a near-perfect PIXEL-ONLY score is the cue-leak signature (the Gemma
 # 6/6 -> 3/6 artifact). For a GROUNDED compliance run the answer is in the preamble
 # by design, so ~1.0 is expected -- read f1 there, the anomaly flag is informational.

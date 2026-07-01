@@ -74,5 +74,13 @@ class Runner:
         mode_kw = ({"telemetry": item["telemetry"]} if grounded
                    else {"system_override": NEUTRAL_PREAMBLE})
 
+        if os.environ.get("COSMOS_PARSE", "regex") == "structured":
+            from runner_structured import DirectionRead  # lazy: pydantic only here
+            # max_retries=0: a parse failure must count against the candidate, not be
+            # silently repaired. The raise is demoted to a miss by gen_preds / loop.
+            result = vlm.analyze_frame_structured(
+                frame, prompt, DirectionRead, temperature=temp, max_retries=0, **mode_kw)
+            return result.direction
+
         resp = vlm.analyze_frame(frame, prompt, temperature=temp, **mode_kw)
         return _parse_direction(vlm.extract_text(resp))

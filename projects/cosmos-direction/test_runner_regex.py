@@ -30,5 +30,6 @@ def test_regex_unparseable_raises(monkeypatch):
     monkeypatch.delenv("COSMOS_PARSE", raising=False)
     import runner; importlib.reload(runner)
     import pytest
-    with pytest.raises(ValueError):
+    from ratchet.adapter import Unparseable
+    with pytest.raises(Unparseable):
         runner.Runner().run("cand", {"frame_path": "x.jpg", "telemetry": {}}, "")

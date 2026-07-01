@@ -25,6 +25,14 @@ ratchet makes each of those failure modes either impossible or loud. The design 
 
 ---
 
+## Lineage: an autoresearch loop for ground truth that can lie
+
+The shape is borrowed from Andrej Karpathy's [`autoresearch`](https://github.com/karpathy/autoresearch): an LLM proposes a change, you run it against a frozen eval, you keep it only if a single scalar improves, and you let it run overnight. autoresearch points this at ML research — an agent edits a training script and *validation loss* is the fitness signal. That signal is objective, cheap, and regenerable: if you want more truth, you just train again. So it needs almost no guardrails. A lower number simply *is* better, and a bad edit is one `git reset` away.
+
+ratchet aims the same loop at a harder target: **subjective judgment measured against external ground truth you cannot regenerate** — human grades, telemetry labels, a finite hand-built set. That truth is noisy, expensive, and *gameable*: a prompt can memorize the split or leak the answer and score brilliantly while being wrong. So the loop is the easy part; the guards are the product. The held-out gate catches memorization, the anomaly ceiling catches leakage, the overfit gap catches train/holdout divergence, the regime fingerprint refuses to compare scores minted under different rules (you can't just re-mint the labels), and the runner fails loud because a *missing* judgment is ambiguous in a way a crashed training run never is. Same skeleton as autoresearch; opposite epistemics — which is exactly why the rules below exist.
+
+---
+
 ## Architecture: a stable core, a thin per-project layer
 
 ```

@@ -1,3 +1,4 @@
+from ratchet.adapter import Unparseable
 from ratchet.loop import cand_id, better, hill_climb, escalate, run_candidate_over
 from ratchet.objectives.within_tol import WithinTol
 
@@ -36,6 +37,57 @@ def test_none_prediction_raises():
     import pytest
     with pytest.raises(ValueError):
         run_candidate_over(_P(), "x", ["a"], {"a": {}})
+
+
+def test_unparseable_demoted_to_miss():
+    # A runner that raises Unparseable (the fail-loud contract) is demoted to a per-item
+    # miss, not an aborted run — one bad frame must not kill the hill-climb.
+    class _P(_Project):
+        class _R:
+            def run(self, candidate, item, policy=""):
+                if item.get("boom"):
+                    raise Unparseable("no direction parseable")
+                return 8
+        runner = _R()
+    preds = run_candidate_over(_P(), "x", ["ok", "bad"], {"ok": {}, "bad": {"boom": True}})
+    assert preds == {"ok": "8"}   # 'bad' dropped as a miss; no exception propagated
+
+
+def test_non_parse_exception_propagates():
+    # A NON-Unparseable error (transport, a harness bug) is NOT a candidate property and
+    # must abort the run loudly — it may never be laundered into a miss.
+    class _P(_Project):
+        class _R:
+            def run(self, candidate, item, policy=""):
+                raise RuntimeError("connection refused")
+        runner = _R()
+    import pytest
+    with pytest.raises(RuntimeError, match="connection refused"):
+        run_candidate_over(_P(), "x", ["a"], {"a": {}})
+
+
+def test_max_miss_rate_guard_halts_systematic_failure():
+    # Opt-in guard: a known-good candidate missing above max_miss_rate is a broken
+    # model/harness, not a few bad frames -> halt for review (ValueError).
+    class _P(_Project):
+        class _R:
+            def run(self, candidate, item, policy=""):
+                raise Unparseable("garbage")
+        runner = _R()
+    import pytest
+    with pytest.raises(ValueError, match="systematic parse failure"):
+        run_candidate_over(_P(), "x", ["a", "b"], {"a": {}, "b": {}}, max_miss_rate=0.5)
+
+
+def test_max_miss_rate_off_by_default():
+    # Without the guard the same all-miss candidate just returns empty preds (scores 0):
+    # every existing project keeps its one-bad-frame-tolerant behavior unchanged.
+    class _P(_Project):
+        class _R:
+            def run(self, candidate, item, policy=""):
+                raise Unparseable("garbage")
+        runner = _R()
+    assert run_candidate_over(_P(), "x", ["a", "b"], {"a": {}, "b": {}}) == {}
 
 
 def test_hill_climb_finds_mutation():

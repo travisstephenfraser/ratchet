@@ -10,3 +10,8 @@ projects/*/bench_*.json
 projects/*/regime_log.jsonl
 projects/*/constraints_log.jsonl
 .DS_Store
+
+# Personal study / handoff notes — never ship in the public repo
+feed/
+*-architecture-*.html
+.superpowers/

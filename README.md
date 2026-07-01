@@ -25,19 +25,19 @@ ratchet makes each of those failure modes either impossible or loud. The design 
 
 ---
 
-## Lineage: an autoresearch loop for ground truth that can lie
+## Lineage: the same loop, a harder kind of truth
 
-The shape is borrowed from Andrej Karpathy's [`autoresearch`](https://github.com/karpathy/autoresearch): an LLM proposes a change, you run it against a frozen eval, you keep it only if a single scalar improves, and you let it run overnight. autoresearch points this at ML research — an agent edits a training script and *validation loss* is the fitness signal. That signal is objective, cheap, and regenerable: if you want more truth, you just train again. So it needs almost no guardrails. A lower number simply *is* better, and a bad edit is one `git reset` away.
+ratchet was built from the ground up for a different problem, the grading-accuracy challenge Rubrica ran into, and it was derived independently rather than forked. It lands on the same shape as Andrej Karpathy's [`autoresearch`](https://github.com/karpathy/autoresearch), which is a clean public expression of the idea and a fair inspiration to name: an LLM proposes a change, you run it against a frozen eval, you keep it only if a single scalar improves, and you let it run overnight. autoresearch points this at ML research, where an agent edits a training script and *validation loss* is the fitness signal. That signal is objective, cheap, and regenerable; if you want more truth, you just train again. So it needs almost no guardrails. A lower number simply *is* better, and a bad edit is one `git reset` away.
 
-ratchet aims the same loop at a harder target: **subjective judgment measured against external ground truth you cannot regenerate** — human grades, telemetry labels, a finite hand-built set. That truth is noisy, expensive, and *gameable*: a prompt can memorize the split or leak the answer and score brilliantly while being wrong. So the loop is the easy part; the guards are the product. The held-out gate catches memorization, the anomaly ceiling catches leakage, the overfit gap catches train/holdout divergence, the regime fingerprint refuses to compare scores minted under different rules (you can't just re-mint the labels), and the runner fails loud because a *missing* judgment is ambiguous in a way a crashed training run never is. Same skeleton as autoresearch; opposite epistemics — which is exactly why the rules below exist.
+ratchet aims the same shape at a harder target: **subjective judgment measured against external ground truth you cannot regenerate**, such as human grades, telemetry labels, or a finite hand-built set. That truth is noisy, expensive, and *gameable*; a prompt can memorize the split or leak the answer and score brilliantly while being wrong. So the loop is the easy part, and the guards are the product. The held-out gate catches memorization, the anomaly ceiling catches leakage, the overfit gap catches train/holdout divergence, the regime fingerprint refuses to compare scores minted under different rules (you can't just re-mint the labels), and the runner fails loud because a *missing* judgment is ambiguous in a way a crashed training run never is. Same skeleton, opposite problem, which is exactly why the rules below exist.
 
 ---
 
 ## Architecture: a stable core, a thin per-project layer
 
 ```
-ratchet/            # the core — you import it, you never edit it
-projects/<name>/      # the per-project layer — you write this
+ratchet/            # the core: you import it, never edit it
+projects/<name>/      # the per-project layer: you write this
 ```
 
 The core has no knowledge of your domain. A project supplies five small adapters and a config file; the core supplies the split discipline, the guards, the objectives, the search loop, the persistence, and the versioning. Porting to a new domain means copying `projects/_template/` and filling in the adapters, never touching `ratchet/`.
@@ -77,7 +77,7 @@ Every score carries two flags:
 
 Both respect the objective's direction (`max` for within-tolerance/F1/judge, `min` for MAE), so "better" is never hard-coded.
 
-**The exit code lives in `verify`, not the loop.** `verify` is the gate: it exits `2` when either flag trips, so it's the thing you wire into CI. The `loop` surfaces the same flags in its output and on the escalation report, but it exits `0` regardless — it's a search tool that explores, and explorers are allowed to find candidates that trip a guard. The discipline is: **search with `loop`, gate with `verify`.** Don't gate on the loop's exit code; have CI run `verify` against the candidate the loop produced.
+**The exit code lives in `verify`, not the loop.** `verify` is the gate: it exits `2` when either flag trips, so it's the thing you wire into CI. The `loop` surfaces the same flags in its output and on the escalation report, but it exits `0` regardless; it's a search tool that explores, and explorers are allowed to find candidates that trip a guard. The discipline is: **search with `loop`, gate with `verify`.** Don't gate on the loop's exit code; have CI run `verify` against the candidate the loop produced.
 
 ### Objectives are pluggable, and they own their direction
 

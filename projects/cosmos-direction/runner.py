@@ -40,6 +40,23 @@ def _parse_direction(text: str) -> str:
     return m.group(1).upper()
 
 
+def _temperature() -> float | None:
+    """Sampling temperature for the scoring call, from env COSMOS_TEMPERATURE.
+
+    Default 0.0 (greedy: lowest sampling noise for a fair hill-climb; note greedy
+    reduces but does not guarantee determinism on MoE/GPU kernels). Set
+    COSMOS_TEMPERATURE="" to OMIT the parameter entirely -- required for models that
+    reject it (e.g. reasoning models that fix sampling internally). A numeric value is
+    passed through. Declared in config.yaml regime_env so it is part of the fingerprint."""
+    raw = os.environ.get("COSMOS_TEMPERATURE")
+    if raw is None:
+        return 0.0
+    raw = raw.strip()
+    if raw == "":
+        return None
+    return float(raw)
+
+
 class Runner:
     def run(self, candidate, item, policy=""):
         if str(COSMOS_DIR) not in sys.path:
@@ -48,8 +65,14 @@ class Runner:
 
         frame = Path(item["frame_path"])
         prompt = f"{policy}\n\n{candidate}".strip() if policy else candidate
-        if os.environ.get("COSMOS_MODE", "pixel") == "grounded":
-            resp = vlm.analyze_frame(frame, prompt, telemetry=item["telemetry"])
-        else:
-            resp = vlm.analyze_frame(frame, prompt, system_override=NEUTRAL_PREAMBLE)
+        grounded = os.environ.get("COSMOS_MODE", "pixel") == "grounded"
+        # temperature default 0.0 (greedy) so the hill-climb isn't swamped by sampling
+        # noise -- vlm otherwise runs at the API default (~1.0). Env-configurable
+        # (COSMOS_TEMPERATURE) because a growing class of models reject the parameter;
+        # temp=None omits it. Applied to BOTH paths so a mode swap stays comparable.
+        temp = _temperature()
+        mode_kw = ({"telemetry": item["telemetry"]} if grounded
+                   else {"system_override": NEUTRAL_PREAMBLE})
+
+        resp = vlm.analyze_frame(frame, prompt, temperature=temp, **mode_kw)
         return _parse_direction(vlm.extract_text(resp))

@@ -4,6 +4,7 @@ so swapping which exams are benched changes the regime. Direction is derivable f
 the objective (name+params), so it is not hashed separately."""
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -19,15 +20,23 @@ def _eval_set_fingerprint(config):
 
 
 def regime_payload(config, constraints_version) -> dict:
+    frozen = {
+        "holdout_pct": config.holdout_pct,
+        "guards": config.guards,
+        "model": config.model,
+        "eval_set": _eval_set_fingerprint(config),
+    }
+    # Environment knobs a project declares as regime-affecting (config.regime_env).
+    # Folded in only when declared AND set, so projects that don't use it keep their
+    # existing hash, and an unset knob doesn't perturb the fingerprint. This is what
+    # makes e.g. COSMOS_PARSE=structured a distinct, un-poolable regime.
+    env = {k: os.environ[k] for k in getattr(config, "regime_env", []) if k in os.environ}
+    if env:
+        frozen["env"] = env
     return {
         "salt": config.salt,
         "objective": {"name": config.objective.name, "params": config.objective.params},
-        "frozen": {
-            "holdout_pct": config.holdout_pct,
-            "guards": config.guards,
-            "model": config.model,
-            "eval_set": _eval_set_fingerprint(config),
-        },
+        "frozen": frozen,
         "constraints_version": constraints_version,
     }
 

@@ -38,6 +38,20 @@ def test_none_prediction_raises():
         run_candidate_over(_P(), "x", ["a"], {"a": {}})
 
 
+def test_raising_runner_demoted_to_miss():
+    # A runner that RAISES on an unparseable frame (fail-loud contract) must be
+    # demoted to a per-item miss, not abort the whole run — parity with gen_preds.
+    class _P(_Project):
+        class _R:
+            def run(self, candidate, item, policy=""):
+                if item.get("boom"):
+                    raise ValueError("no direction parseable")
+                return 8
+        runner = _R()
+    preds = run_candidate_over(_P(), "x", ["ok", "bad"], {"ok": {}, "bad": {"boom": True}})
+    assert preds == {"ok": "8"}   # 'bad' dropped as a miss; no exception propagated
+
+
 def test_hill_climb_finds_mutation():
     best = hill_climb(_Project(), ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"},
                       rounds=3, patience=2)

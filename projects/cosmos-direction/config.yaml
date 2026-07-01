@@ -19,3 +19,7 @@ search: {rounds: 4, patience: 2}
 # the runner) is a regime bump and must be recorded before results pool.
 model: {name: gemma-4-31b-it-mlx@8bit, temperature: 0, max_tokens: 256}
 bench: {candidates: [], eval_set: data/eval_set.txt}
+# Env knobs that change comparability -> folded into the regime hash so a structured
+# run and a regex run (or a backend/mode swap) can never silently pool. The runner
+# reads these at call time; regime_payload snapshots them at fingerprint time.
+regime_env: [COSMOS_PARSE, COSMOS_VLM_BACKEND, COSMOS_MODE, COSMOS_TEMPERATURE]

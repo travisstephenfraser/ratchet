@@ -3,6 +3,7 @@ split only; the active constraints `policy` is threaded into every grading call;
 candidate is persisted with its regime stamp; on plateau the best is escalated to the
 holdout gate. Works for any Runner + Objective."""
 import hashlib
+import sys
 
 from .verifier import score_split, gap_report, log_holdout_access
 from . import results
@@ -20,7 +21,16 @@ def run_candidate_over(project, candidate, ids, items, policy=""):
     preds = {}
     for i in ids:
         if i in items:
-            p = project.runner.run(candidate, items[i], policy)
+            # A runner that RAISES on an unparseable response (the fail-loud contract)
+            # is demoted to a per-item MISS here, matching gen_preds.py — a single bad
+            # frame must not abort the whole hill-climb/escalate run. The objective
+            # counts the absent id against the candidate. A candidate that fails on
+            # EVERY item still surfaces loudly: escalate() raises on 0 predictions.
+            try:
+                p = project.runner.run(candidate, items[i], policy)
+            except Exception as e:  # parse/transport failure -> miss, keep going
+                print(f"  miss {i}: {e}", file=sys.stderr)
+                continue
             if p is None:
                 raise ValueError(f"runner returned None for {i} (fail-loud: parse must raise)")
             preds[i] = str(p)

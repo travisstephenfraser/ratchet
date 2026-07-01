@@ -1,6 +1,6 @@
 """Load and validate a project's config.yaml into a typed Config.
 Direction is intentionally NOT a config field — the Objective instance owns it."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import yaml
 
@@ -27,6 +27,11 @@ class Config:
     model: dict
     bench: dict
     project_dir: Path
+    # Names of environment variables that alter comparability and so belong in the
+    # regime fingerprint (e.g. a runner's parse mode / backend / probe mode). Declared
+    # per-project in config.yaml as `regime_env: [...]`; empty by default so projects
+    # that don't set it keep their existing regime hash.
+    regime_env: list = field(default_factory=list)
 
 
 def load_config(project_dir) -> Config:
@@ -40,4 +45,5 @@ def load_config(project_dir) -> Config:
         objective=ObjectiveCfg(obj["name"], obj.get("params", {})),
         guards=raw["guards"], search=raw["search"], model=raw["model"], bench=raw["bench"],
         project_dir=project_dir,
+        regime_env=list(raw.get("regime_env", [])),
     )

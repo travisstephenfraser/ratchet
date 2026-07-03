@@ -66,3 +66,53 @@ def test_ledger_roundtrip(tmp_path):
                timestamp="2026-06-25T00:00:00Z")
     assert led.entries()[0]["version"] == "v2"
     assert led.entries()[0]["changed"][0]["new"] == 4000
+
+
+def test_hash_changes_when_derived_truth_changes(tmp_path):
+    # same config, DIFFERENT label values -> different regime (the truth-derivation hole)
+    cfg = _cfg(tmp_path)
+    a = regime_hash(regime_payload(cfg, "c1", {"id1": "DOWNHILL", "id2": "FLAT"}))
+    b = regime_hash(regime_payload(cfg, "c1", {"id1": "UPHILL", "id2": "FLAT"}))
+    assert a != b
+
+
+def test_hash_changes_when_item_set_changes(tmp_path):
+    cfg = _cfg(tmp_path)
+    a = regime_hash(regime_payload(cfg, "c1", {"id1": "X"}))
+    b = regime_hash(regime_payload(cfg, "c1", {"id1": "X", "id2": "X"}))  # extra item
+    assert a != b
+
+
+def test_truth_none_is_backward_compatible(tmp_path):
+    # omitting truth must not perturb the hash relative to explicitly passing None
+    cfg = _cfg(tmp_path)
+    assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1", None))
+
+
+def test_logic_hash_changes_on_runner_source_edit(tmp_path):
+    (tmp_path / "runner.py").write_text("class Runner:\n    def run(self,c,i,p=''): return '1'\n")
+    cfg = _cfg(tmp_path); cfg.runner = "runner.py:Runner"
+    a = regime_hash(regime_payload(cfg, "c1"))
+    (tmp_path / "runner.py").write_text("class Runner:\n    def run(self,c,i,p=''): return '2'\n")
+    b = regime_hash(regime_payload(cfg, "c1"))
+    assert a != b  # a scoring/parse-logic edit bumps the regime
+
+
+def test_logic_hash_is_deterministic_when_source_unchanged(tmp_path):
+    (tmp_path / "runner.py").write_text("X")
+    cfg = _cfg(tmp_path); cfg.runner = "runner.py:Runner"
+    assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1"))
+
+
+def test_enforce_regime_blocks_on_relabeled_truth(tmp_path):
+    from ratchet.regime_state import enforce_regime
+    class _P:
+        def __init__(self, cfg): self.config = cfg
+    cfg = _cfg(tmp_path)
+    ledger = tmp_path / "regime_log.jsonl"
+    # first run establishes the baseline .regime with truth A
+    enforce_regime(_P(cfg), "c1", ledger, {"id1": "DOWNHILL"})
+    # a relabeled truth is a different regime and must block (exit 2), no ledger rationale
+    with pytest.raises(SystemExit) as ei:
+        enforce_regime(_P(cfg), "c1", ledger, {"id1": "UPHILL"})
+    assert ei.value.code == 2

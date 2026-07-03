@@ -17,9 +17,9 @@ def main():
     proj = load_project(Path(args.project))
     cpath = Path(args.project) / "constraints.jsonl"
     policy, cv = load_constraints(cpath), current_version(cpath)
-    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl")  # BLOCKS on silent change
-    regime = regime_hash(regime_payload(proj.config, cv))
     items, truth = proj.ingest()
+    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl", truth)  # BLOCKS on silent change
+    regime = regime_hash(regime_payload(proj.config, cv, truth))
     train, holdout = split_ids(list(truth), proj.config.salt, proj.config.holdout_pct)
     rounds = args.rounds or proj.config.search["rounds"]
     best = hill_climb(proj, train, items, truth, rounds=rounds,

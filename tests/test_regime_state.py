@@ -20,17 +20,20 @@ def _proj(tmp_path, max_tokens):
 
 def test_first_run_writes_regime(tmp_path):
     proj = _proj(tmp_path, 1500)
-    h = enforce_regime(proj, "c1", tmp_path / "regime_log.jsonl")
+    _, truth = proj.ingest()
+    h = enforce_regime(proj, "c1", tmp_path / "regime_log.jsonl", truth)
     assert (tmp_path / ".regime").exists() and len(h) == 12
 
 
 def test_silent_change_blocks_then_passes_after_bump(tmp_path):
     ledger = tmp_path / "regime_log.jsonl"
-    enforce_regime(_proj(tmp_path, 1500), "c1", ledger)        # establish baseline
-    proj2 = _proj(tmp_path, 4000)                              # silent frozen-param change
+    proj1 = _proj(tmp_path, 1500)
+    _, truth = proj1.ingest()
+    enforce_regime(proj1, "c1", ledger, truth)                # establish baseline
+    proj2 = _proj(tmp_path, 4000)                             # silent frozen-param change
     with pytest.raises(SystemExit) as exc:
-        enforce_regime(proj2, "c1", ledger)
+        enforce_regime(proj2, "c1", ledger, truth)
     assert exc.value.code == 2
     record_bump(proj2, "c1", why="Qwen truncated", impact="re-baseline",
-                author="reviewer", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger)
-    assert enforce_regime(proj2, "c1", ledger)                # now unblocked
+                author="reviewer", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger, truth=truth)
+    assert enforce_regime(proj2, "c1", ledger, truth)         # now unblocked

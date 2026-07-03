@@ -13,7 +13,7 @@ def test_toy_climbs_persists_then_survives_gate(tmp_path):
     items, truth = proj.ingest()
     policy = load_constraints(TOY / "constraints.jsonl")
     cv = current_version(TOY / "constraints.jsonl")
-    regime = regime_hash(regime_payload(proj.config, cv))
+    regime = regime_hash(regime_payload(proj.config, cv, truth))
     train, holdout = split_ids(list(truth), proj.config.salt, proj.config.holdout_pct)
 
     best = hill_climb(proj, train, items, truth, rounds=proj.config.search["rounds"],

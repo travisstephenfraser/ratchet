@@ -6,11 +6,18 @@ from .constraints import current_version
 from .regime_state import record_bump
 
 
+def _nonblank(value):
+    # The ledger rationale is the audit trail for a sanctioned bump; --why "" defeats it.
+    if not value.strip():
+        raise argparse.ArgumentTypeError("must not be blank")
+    return value
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
-    ap.add_argument("--why", required=True)
-    ap.add_argument("--impact", default="")
+    ap.add_argument("--why", required=True, type=_nonblank)
+    ap.add_argument("--impact", required=True, type=_nonblank)
     ap.add_argument("--author", default="author")
     args = ap.parse_args()
     proj = load_project(Path(args.project))

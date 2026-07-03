@@ -4,6 +4,7 @@ The anomaly (verifier-leak) flag is surfaced at the top level of the gap report 
 re-checked at the escalation gate, so a leak is loud, not buried."""
 import csv
 import hashlib
+import warnings
 from datetime import datetime, timezone
 
 from .regime import guard_compare, RegimeMismatch
@@ -52,6 +53,39 @@ def preds_regime_gate(stamped, current):
     return None
 
 
+class Predictions(dict):
+    """Prediction map carrying the regime it was produced under (None = unstamped).
+    A dict subclass so every existing consumer and plain-dict caller keeps working;
+    the stamp travels WITH the data, like the CSV comment line it mirrors.
+    Standard dict copy/merge operations (.copy(), dict(p), {**p}) return a plain dict and DROP the stamp; re-wrap with Predictions(..., regime=...) after copying."""
+    def __init__(self, data=None, *, regime=None):
+        super().__init__(data or {})
+        self.regime = regime
+
+
+UNSTAMPED_PREDS_WARNING = (
+    "predictions carry no regime stamp; scoring anyway, but ratchet cannot confirm they "
+    "were produced under expected regime {expected!r}.\n"
+    "  RISK: a cross-regime score is a silently wrong number that can PASS a gate it "
+    "should fail, or FAIL one it should pass.\n"
+    "  FIX: produce predictions via run_candidate_over(..., regime=...) or load_column() "
+    "on a stamped file so provenance travels with them."
+)
+
+
+def check_expected_regime(preds, expected_regime):
+    """In-process comparability guard. Raises RegimeMismatch when the preds' stamp and
+    the expectation differ; warns (allowed-but-loud, the CLI legacy posture) when the
+    preds are unstamped; silent when the caller passes no expectation."""
+    if expected_regime is None:
+        return
+    stamped = getattr(preds, "regime", None)
+    if stamped is None:
+        warnings.warn(UNSTAMPED_PREDS_WARNING.format(expected=expected_regime), stacklevel=3)
+        return
+    guard_compare(stamped, expected_regime)  # raises RegimeMismatch on mismatch
+
+
 def load_column(path, value_field=None):
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(line for line in f if not line.startswith("#"))
@@ -61,7 +95,8 @@ def load_column(path, value_field=None):
             if not rest:
                 raise ValueError(f"{path}: no value column (fields={fields})")
             value_field = rest[0]
-        return {row["anon_id"]: row[value_field] for row in reader if row["anon_id"]}
+        rows = {row["anon_id"]: row[value_field] for row in reader if row["anon_id"]}
+    return Predictions(rows, regime=read_preds_regime(path))
 
 
 def split_ids(ids, salt, holdout_pct):
@@ -72,7 +107,8 @@ def split_ids(ids, salt, holdout_pct):
     return train, holdout
 
 
-def score_split(preds, truth, ids, objective, anomaly_at):
+def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None):
+    check_expected_regime(preds, expected_regime)
     if objective.direction not in ("max", "min"):
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
     # hand the objective only the labels for the ids being scored, never the whole vault
@@ -83,10 +119,11 @@ def score_split(preds, truth, ids, objective, anomaly_at):
     return {**base, "anomaly": anomaly}
 
 
-def gap_report(preds, truth, train, holdout, objective, guards):
+def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime=None):
     overlap = set(train) & set(holdout)
     if overlap:
         raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
+    check_expected_regime(preds, expected_regime)
     tr = score_split(preds, truth, train, objective, guards["anomaly_at"])
     ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"])
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \

@@ -28,7 +28,8 @@ def main():
     print(f"best cid={best['cid']} objective={best['metrics']['objective']}")
     if args.escalate:
         gate = escalate(proj, best, train, holdout, items, truth,
-                        log_path=Path(args.project) / "holdout_access.log", policy=policy)
+                        log_path=Path(args.project) / "holdout_access.log", policy=policy,
+                        regime=regime)
         print(f"gate gap={gate['gap']:.3f} anomaly={gate['anomaly']} -> "
               f"{'OVERFIT — reject' if gate['overfit'] else 'generalizes — pass'}")
 

@@ -101,3 +101,94 @@ def test_preds_regime_gate_match_mismatch_and_legacy():
     # mismatch -> refuse
     with pytest.raises(RegimeMismatch):
         preds_regime_gate("r1", "r2")
+
+
+def test_predictions_carries_regime_and_acts_like_a_dict():
+    from ratchet.verifier import Predictions
+    p = Predictions({"a": "1"}, regime="r1")
+    assert p == {"a": "1"} and p["a"] == "1" and len(p) == 1
+    assert p.regime == "r1"
+    assert Predictions().regime is None
+    assert getattr({"a": "1"}, "regime", None) is None  # plain dicts stay valid inputs
+
+
+def test_score_split_refuses_cross_regime_when_expected_given():
+    from ratchet.verifier import Predictions
+    from ratchet.regime import RegimeMismatch
+    preds = Predictions({"a": "10"}, regime="r-old")
+    with pytest.raises(RegimeMismatch):
+        score_split(preds, {"a": "10"}, ["a"], WithinTol(tol=0.5),
+                    anomaly_at=0.98, expected_regime="r-new")
+
+
+def test_score_split_matching_regime_is_silent():
+    import warnings
+    from ratchet.verifier import Predictions
+    preds = Predictions({"a": "10"}, regime="r1")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        m = score_split(preds, {"a": "10"}, ["a"], WithinTol(tol=0.5),
+                        anomaly_at=0.98, expected_regime="r1")
+    assert m["objective"] == 1.0 and not caught
+
+
+def test_score_split_warns_on_unstamped_when_expected_given():
+    with pytest.warns(UserWarning, match="no regime stamp"):
+        m = score_split({"a": "10"}, {"a": "10"}, ["a"], WithinTol(tol=0.5),
+                        anomaly_at=0.98, expected_regime="r-new")
+    assert m["objective"] == 1.0  # allowed-but-loud, mirrors the CLI legacy posture
+
+
+def test_score_split_without_expected_never_checks():
+    from ratchet.verifier import Predictions
+    preds = Predictions({"a": "10"}, regime="r-old")  # mismatched stamp, no expectation
+    m = score_split(preds, {"a": "10"}, ["a"], WithinTol(tol=0.5), anomaly_at=0.98)
+    assert m["objective"] == 1.0  # today's behavior, zero breakage
+
+
+def test_gap_report_guards_once():
+    import warnings
+    from ratchet.verifier import Predictions
+    from ratchet.regime import RegimeMismatch
+    truth = {"a": "10", "b": "10"}
+    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25}
+    stamped = Predictions(truth, regime="r-old")
+    with pytest.raises(RegimeMismatch):
+        gap_report(stamped, truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
+                   expected_regime="r-new")
+    # unstamped preds warn EXACTLY once (top of gap_report, not per internal score_split)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        gap_report(dict(truth), truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
+                   expected_regime="r-new")
+    assert len([w for w in caught if "no regime stamp" in str(w.message)]) == 1
+
+
+def test_gap_report_matching_regime_is_silent():
+    import warnings
+    from ratchet.verifier import Predictions
+    truth = {"a": "10", "b": "10"}
+    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25}
+    preds = Predictions(truth, regime="r1")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        r = gap_report(preds, truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
+                       expected_regime="r1")
+    assert r["gap"] == 0.0 and not caught
+
+
+def test_load_column_returns_stamped_predictions(tmp_path):
+    from ratchet.verifier import preds_regime_header
+    p = tmp_path / "preds.csv"
+    p.write_text(preds_regime_header("abc123def456") + "anon_id,direction\nid1,DOWNHILL\n")
+    preds = load_column(p)
+    assert preds == {"id1": "DOWNHILL"}
+    assert preds.regime == "abc123def456"
+
+
+def test_load_column_unstamped_file_has_no_regime(tmp_path):
+    p = tmp_path / "legacy.csv"
+    p.write_text("anon_id,direction\nid1,UPHILL\n")
+    preds = load_column(p)
+    assert preds == {"id1": "UPHILL"}
+    assert preds.regime is None

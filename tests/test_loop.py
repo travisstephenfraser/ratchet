@@ -164,3 +164,20 @@ def test_max_miss_rate_halts_on_zero_attempts():
     # ids present, but NONE overlap items -> attempted == 0 (a broken harness)
     with pytest.raises(ValueError, match="no items scored"):
         run_candidate_over(_P(), "x", ["a", "b"], {"zzz": {}}, max_miss_rate=0.5)
+
+
+def test_run_candidate_over_stamps_regime():
+    from ratchet.loop import run_candidate_over
+
+    class _Runner:
+        def run(self, candidate, item, policy=""):
+            return "1"
+
+    class _Proj:
+        runner = _Runner()
+
+    stamped = run_candidate_over(_Proj(), "cand", ["a"], {"a": {}}, regime="r1")
+    assert stamped == {"a": "1"}
+    assert stamped.regime == "r1"
+    unstamped = run_candidate_over(_Proj(), "cand", ["a"], {"a": {}})
+    assert getattr(unstamped, "regime", None) is None

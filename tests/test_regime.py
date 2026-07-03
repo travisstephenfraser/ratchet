@@ -66,3 +66,24 @@ def test_ledger_roundtrip(tmp_path):
                timestamp="2026-06-25T00:00:00Z")
     assert led.entries()[0]["version"] == "v2"
     assert led.entries()[0]["changed"][0]["new"] == 4000
+
+
+def test_hash_changes_when_derived_truth_changes(tmp_path):
+    # same config, DIFFERENT label values -> different regime (the truth-derivation hole)
+    cfg = _cfg(tmp_path)
+    a = regime_hash(regime_payload(cfg, "c1", {"id1": "DOWNHILL", "id2": "FLAT"}))
+    b = regime_hash(regime_payload(cfg, "c1", {"id1": "UPHILL", "id2": "FLAT"}))
+    assert a != b
+
+
+def test_hash_changes_when_item_set_changes(tmp_path):
+    cfg = _cfg(tmp_path)
+    a = regime_hash(regime_payload(cfg, "c1", {"id1": "X"}))
+    b = regime_hash(regime_payload(cfg, "c1", {"id1": "X", "id2": "X"}))  # extra item
+    assert a != b
+
+
+def test_truth_none_is_backward_compatible(tmp_path):
+    # omitting truth must not perturb the hash relative to explicitly passing None
+    cfg = _cfg(tmp_path)
+    assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1", None))

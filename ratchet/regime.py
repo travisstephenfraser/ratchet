@@ -19,13 +19,26 @@ def _eval_set_fingerprint(config):
     return "ingest-full"
 
 
-def regime_payload(config, constraints_version) -> dict:
+def _truth_fingerprint(truth) -> str:
+    """Content hash of the derived (id, label) ground truth. Fingerprints the OUTPUT of
+    ingest(), so it closes the item-set, item-count, and truth-DERIVATION holes at once:
+    change a relabeling constant (e.g. a gradient band) and every label flips, so this
+    moves even when the id list and the config are byte-identical."""
+    items = sorted((str(k), str(v)) for k, v in truth.items())
+    return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:12]
+
+
+def regime_payload(config, constraints_version, truth=None) -> dict:
     frozen = {
         "holdout_pct": config.holdout_pct,
         "guards": config.guards,
         "model": config.model,
         "eval_set": _eval_set_fingerprint(config),
     }
+    # Content of the derived ground truth. Omitted when truth is not supplied (unit tests),
+    # but every real entry point passes it, so a relabel or an item-set change bumps the hash.
+    if truth is not None:
+        frozen["truth"] = _truth_fingerprint(truth)
     # Environment knobs a project declares as regime-affecting (config.regime_env).
     # Folded in only when declared AND set, so projects that don't use it keep their
     # existing hash, and an unset knob doesn't perturb the fingerprint. This is what

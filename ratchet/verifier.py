@@ -6,6 +6,8 @@ import csv
 import hashlib
 from datetime import datetime, timezone
 
+from .regime import guard_compare, RegimeMismatch
+
 
 PREDS_REGIME_PREFIX = "# ratchet-regime: "
 
@@ -25,6 +27,28 @@ def read_preds_regime(path):
                 return line[len(PREDS_REGIME_PREFIX):].strip()
             if line.strip() and not line.startswith("#"):
                 return None
+    return None
+
+
+LEGACY_PREDS_WARNING = (
+    "WARNING: predictions file {path} carries no regime stamp (legacy or externally "
+    "generated). Scoring it anyway, but ratchet CANNOT confirm these predictions were "
+    "produced under the current regime.\n"
+    "  RISK: if they were generated under a different model, prompt, eval set, or label "
+    "set, this score is comparing across incomparable rules, a silently wrong number that "
+    "can PASS a gate it should fail, or FAIL one it should pass.\n"
+    "  FIX: regenerate the predictions with the current gen_preds so the file is stamped, "
+    "or re-run generation and scoring under one regime."
+)
+
+
+def preds_regime_gate(stamped, current):
+    """Compare a preds file's stamped regime against the current one. Returns the legacy
+    warning string when the file is unstamped, None when the stamp matches, and raises
+    RegimeMismatch when they differ (the caller exits non-zero)."""
+    if stamped is None:
+        return LEGACY_PREDS_WARNING
+    guard_compare(stamped, current)  # raises RegimeMismatch on mismatch
     return None
 
 

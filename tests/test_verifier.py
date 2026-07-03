@@ -86,3 +86,18 @@ def test_read_preds_regime_none_when_unstamped(tmp_path):
     p.write_text("anon_id,direction\nid1,UPHILL\n")  # no stamp
     assert read_preds_regime(p) is None
     assert load_column(p) == {"id1": "UPHILL"}
+
+
+def test_preds_regime_gate_match_mismatch_and_legacy():
+    import pytest
+    from ratchet.verifier import preds_regime_gate, LEGACY_PREDS_WARNING
+    from ratchet.regime import RegimeMismatch
+    # match -> no warning, no raise
+    assert preds_regime_gate("r1", "r1") is None
+    # legacy (unstamped) -> a warning that names the risk and consequence
+    w = preds_regime_gate(None, "r1")
+    assert w is LEGACY_PREDS_WARNING
+    assert "RISK" in w and ("pass" in w.lower() and "fail" in w.lower())
+    # mismatch -> refuse
+    with pytest.raises(RegimeMismatch):
+        preds_regime_gate("r1", "r2")

@@ -21,3 +21,21 @@ def test_loop_cli_runs_and_reports_best():
 def test_bench_cli_runs():
     r = _run(["ratchet.bench_cli", "--project", str(TOY)])
     assert r.returncode == 0 and "regime" in r.stdout.lower()
+
+
+# The ledger rationale is the audit trail for a sanctioned regime bump; a blank
+# --why/--impact defeats it, so the CLI must refuse before touching the project.
+
+def test_regime_cli_rejects_blank_why():
+    r = _run(["ratchet.regime_cli", "--project", str(TOY), "--why", "   ", "--impact", "x"])
+    assert r.returncode == 2 and "blank" in r.stderr.lower()
+
+
+def test_regime_cli_rejects_blank_impact():
+    r = _run(["ratchet.regime_cli", "--project", str(TOY), "--why", "model swap", "--impact", ""])
+    assert r.returncode == 2 and "blank" in r.stderr.lower()
+
+
+def test_regime_cli_requires_impact():
+    r = _run(["ratchet.regime_cli", "--project", str(TOY), "--why", "model swap"])
+    assert r.returncode == 2

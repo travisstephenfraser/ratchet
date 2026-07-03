@@ -1,5 +1,6 @@
 import json
 from ratchet.results import write_candidate, append_loop_log, write_bench
+from ratchet.verifier import read_preds_regime, load_column
 
 
 def test_write_candidate_stamps_regime(tmp_path):
@@ -24,3 +25,11 @@ def test_write_bench(tmp_path):
     p = write_bench(tmp_path, "reg9", [{"candidate": "good", "objective": 1.0}])
     assert p.name == "bench_reg9.json"
     assert json.loads(p.read_text())[0]["candidate"] == "good"
+
+
+def test_write_candidate_stamps_the_regime(tmp_path):
+    write_candidate(tmp_path, "cid1", "some instructions",
+                    {"id1": "10", "id2": "8"}, {"objective": 1.0}, regime="r-abc-123")
+    preds = tmp_path / "candidates" / "cid1.preds.csv"
+    assert read_preds_regime(preds) == "r-abc-123"
+    assert load_column(preds) == {"id1": "10", "id2": "8"}  # data still parses

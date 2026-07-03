@@ -5,12 +5,15 @@ import csv
 import json
 from pathlib import Path
 
+from .verifier import preds_regime_header
+
 
 def write_candidate(out_dir, cid, instructions, preds, metrics, regime):
     cand_dir = Path(out_dir) / "candidates"
     cand_dir.mkdir(parents=True, exist_ok=True)
     (cand_dir / f"{cid}.txt").write_text(instructions)
     with open(cand_dir / f"{cid}.preds.csv", "w", newline="") as fh:
+        fh.write(preds_regime_header(regime))
         w = csv.writer(fh)
         w.writerow(["anon_id", "score"])
         for anon, score in preds.items():

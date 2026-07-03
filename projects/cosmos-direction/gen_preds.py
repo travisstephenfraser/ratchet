@@ -23,6 +23,10 @@ import time
 from pathlib import Path
 
 from ratchet.adapter import Unparseable
+from ratchet.config import load_config
+from ratchet.constraints import current_version
+from ratchet.regime import regime_payload, regime_hash
+from ratchet.verifier import preds_regime_header
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
@@ -36,7 +40,10 @@ def main(argv=None) -> int:
     ap.add_argument("--base", default=str(HERE / "base.txt"))
     args = ap.parse_args(argv)
 
-    items, _ = ingest.ingest()
+    items, truth = ingest.ingest()
+    cfg = load_config(HERE)
+    cv = current_version(HERE / "constraints.jsonl")
+    regime = regime_hash(regime_payload(cfg, cv, truth))
     base = Path(args.base).read_text()
     r = runner.Runner()
     ids = sorted(items)
@@ -45,6 +52,7 @@ def main(argv=None) -> int:
 
     n, ok, miss, t0 = len(ids), 0, 0, time.time()
     with open(out, "w", newline="", encoding="utf-8") as f:
+        f.write(preds_regime_header(regime))
         w = csv.writer(f)
         w.writerow(["anon_id", "direction"])
         for k, anon in enumerate(ids, 1):

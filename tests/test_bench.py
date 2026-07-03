@@ -8,6 +8,7 @@ class _Project:
         self.config = type("C", (), {
             "guards": {"anomaly_at": 0.95, "overfit_gap": 0.10},
             "salt": "t", "holdout_pct": 30, "project_dir": tmp_path,
+            "runner": "runner.py:Runner",  # source fingerprint reads this (missing -> deterministic)
             "objective": type("O", (), {"name": "within_tol", "params": {"tol": 0.5}})(),
             "model": {"name": "m"}, "bench": {"eval_set": "data/eval_set.txt"},
         })()

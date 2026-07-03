@@ -102,3 +102,17 @@ def test_logic_hash_is_deterministic_when_source_unchanged(tmp_path):
     (tmp_path / "runner.py").write_text("X")
     cfg = _cfg(tmp_path); cfg.runner = "runner.py:Runner"
     assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1"))
+
+
+def test_enforce_regime_blocks_on_relabeled_truth(tmp_path):
+    from ratchet.regime_state import enforce_regime
+    class _P:
+        def __init__(self, cfg): self.config = cfg
+    cfg = _cfg(tmp_path)
+    ledger = tmp_path / "regime_log.jsonl"
+    # first run establishes the baseline .regime with truth A
+    enforce_regime(_P(cfg), "c1", ledger, {"id1": "DOWNHILL"})
+    # a relabeled truth is a different regime and must block (exit 2), no ledger rationale
+    with pytest.raises(SystemExit) as ei:
+        enforce_regime(_P(cfg), "c1", ledger, {"id1": "UPHILL"})
+    assert ei.value.code == 2

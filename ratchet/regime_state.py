@@ -16,8 +16,8 @@ def _covered(changes, entries):
     return all(recorded.get(f) == n for (f, _o, n) in changes)
 
 
-def enforce_regime(project, constraints_version, ledger_path):
-    payload = regime_payload(project.config, constraints_version)
+def enforce_regime(project, constraints_version, ledger_path, truth):
+    payload = regime_payload(project.config, constraints_version, truth)
     current = regime_hash(payload)
     state_path = Path(project.config.project_dir) / ".regime"
     if state_path.exists():
@@ -35,8 +35,8 @@ def enforce_regime(project, constraints_version, ledger_path):
     return current
 
 
-def record_bump(project, constraints_version, why, impact, author, timestamp, ledger_path):
-    payload = regime_payload(project.config, constraints_version)
+def record_bump(project, constraints_version, why, impact, author, timestamp, ledger_path, truth):
+    payload = regime_payload(project.config, constraints_version, truth)
     state_path = Path(project.config.project_dir) / ".regime"
     old = json.loads(state_path.read_text()) if state_path.exists() else {}
     changes = diff_payload(old, payload)

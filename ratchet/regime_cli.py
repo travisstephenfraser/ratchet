@@ -15,9 +15,10 @@ def main():
     args = ap.parse_args()
     proj = load_project(Path(args.project))
     cv = current_version(Path(args.project) / "constraints.jsonl")
+    _, truth = proj.ingest()
     changes = record_bump(proj, cv, why=args.why, impact=args.impact, author=args.author,
                           timestamp=datetime.now(timezone.utc).isoformat(),
-                          ledger_path=Path(args.project) / "regime_log.jsonl")
+                          ledger_path=Path(args.project) / "regime_log.jsonl", truth=truth)
     print(f"recorded {len(changes)} change(s) to regime_log.jsonl")
     for f, o, n in changes:
         print(f"  {f}: {o!r} -> {n!r}")

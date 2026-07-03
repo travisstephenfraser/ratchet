@@ -13,8 +13,8 @@ def main():
     proj = load_project(Path(args.project))
     cpath = Path(args.project) / "constraints.jsonl"
     policy, cv = load_constraints(cpath), current_version(cpath)
-    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl")
     items, truth = proj.ingest()
+    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl", truth)
     eval_ids = load_eval_ids(proj, truth)
     rows = bench(proj, proj.config.bench["candidates"], eval_ids, items, truth, cv,
                  policy=policy, out_dir=Path(args.project))

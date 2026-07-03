@@ -14,9 +14,9 @@ def main():
     args = ap.parse_args()
     proj = load_project(Path(args.project))
     cv = current_version(Path(args.project) / "constraints.jsonl")
-    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl")
     _, truth = proj.ingest()
     truth = {k: str(v) for k, v in truth.items()}
+    enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl", truth)
     preds = load_column(Path(args.predictions))
     train, holdout = split_ids(list(truth), proj.config.salt, proj.config.holdout_pct)
     guards = proj.config.guards

@@ -22,6 +22,8 @@ import sys
 import time
 from pathlib import Path
 
+from ratchet.adapter import Unparseable
+
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import ingest   # noqa: E402  (project adapter)
@@ -49,7 +51,7 @@ def main(argv=None) -> int:
             try:
                 w.writerow([anon, r.run(base, items[anon])])
                 ok += 1
-            except Exception as e:                       # parse/transport failure -> miss
+            except Unparseable as e:                     # a real parse miss -> omit -> counts as a miss in verify
                 miss += 1
                 print(f"  miss {anon}: {e}", file=sys.stderr)
             f.flush()

@@ -22,7 +22,7 @@ def bench(project, candidates, eval_ids, items, truth, constraints_version, poli
     regime = regime_hash(regime_payload(project.config, constraints_version, truth))
     rows = []
     for cand in candidates:
-        preds = run_candidate_over(project, cand, eval_ids, items, policy)
+        preds = run_candidate_over(project, cand, eval_ids, items, policy, regime=regime)
         if eval_ids and not preds:
             raise ValueError(
                 f"bench: 0/{len(eval_ids)} items produced predictions for a candidate — "

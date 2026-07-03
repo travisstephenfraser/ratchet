@@ -2,7 +2,7 @@ import argparse, json, sys
 from pathlib import Path
 from .project import load_project
 from .verifier import (split_ids, score_split, gap_report, load_column, log_holdout_access,
-                       read_preds_regime, preds_regime_gate)
+                       preds_regime_gate)
 from .constraints import current_version
 from .regime_state import enforce_regime
 from .regime import RegimeMismatch
@@ -21,7 +21,7 @@ def main():
     current = enforce_regime(proj, cv, Path(args.project) / "regime_log.jsonl", truth)
     preds = load_column(Path(args.predictions))
     try:
-        warning = preds_regime_gate(read_preds_regime(Path(args.predictions)), current)
+        warning = preds_regime_gate(preds.regime, current)
     except RegimeMismatch as e:
         print(f"refusing to score across regimes: {e}", file=sys.stderr)
         sys.exit(2)

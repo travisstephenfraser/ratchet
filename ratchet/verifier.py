@@ -94,7 +94,8 @@ def load_column(path, value_field=None):
             if not rest:
                 raise ValueError(f"{path}: no value column (fields={fields})")
             value_field = rest[0]
-        return {row["anon_id"]: row[value_field] for row in reader if row["anon_id"]}
+        rows = {row["anon_id"]: row[value_field] for row in reader if row["anon_id"]}
+    return Predictions(rows, regime=read_preds_regime(path))
 
 
 def split_ids(ids, salt, holdout_pct):

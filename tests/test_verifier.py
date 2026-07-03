@@ -162,3 +162,20 @@ def test_gap_report_guards_once():
         gap_report(dict(truth), truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
                    expected_regime="r-new")
     assert len([w for w in caught if "no regime stamp" in str(w.message)]) == 1
+
+
+def test_load_column_returns_stamped_predictions(tmp_path):
+    from ratchet.verifier import preds_regime_header
+    p = tmp_path / "preds.csv"
+    p.write_text(preds_regime_header("abc123def456") + "anon_id,direction\nid1,DOWNHILL\n")
+    preds = load_column(p)
+    assert preds == {"id1": "DOWNHILL"}
+    assert preds.regime == "abc123def456"
+
+
+def test_load_column_unstamped_file_has_no_regime(tmp_path):
+    p = tmp_path / "legacy.csv"
+    p.write_text("anon_id,direction\nid1,UPHILL\n")
+    preds = load_column(p)
+    assert preds == {"id1": "UPHILL"}
+    assert preds.regime is None

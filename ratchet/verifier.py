@@ -39,6 +39,9 @@ def score_split(preds, truth, ids, objective, anomaly_at):
 
 
 def gap_report(preds, truth, train, holdout, objective, guards):
+    overlap = set(train) & set(holdout)
+    if overlap:
+        raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
     tr = score_split(preds, truth, train, objective, guards["anomaly_at"])
     ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"])
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \

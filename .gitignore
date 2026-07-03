@@ -15,3 +15,5 @@ projects/*/constraints_log.jsonl
 feed/
 *-architecture-*.html
 .superpowers/
+docs/plans/
+docs/superpowers/plans/

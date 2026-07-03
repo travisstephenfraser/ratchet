@@ -87,3 +87,18 @@ def test_truth_none_is_backward_compatible(tmp_path):
     # omitting truth must not perturb the hash relative to explicitly passing None
     cfg = _cfg(tmp_path)
     assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1", None))
+
+
+def test_logic_hash_changes_on_runner_source_edit(tmp_path):
+    (tmp_path / "runner.py").write_text("class Runner:\n    def run(self,c,i,p=''): return '1'\n")
+    cfg = _cfg(tmp_path); cfg.runner = "runner.py:Runner"
+    a = regime_hash(regime_payload(cfg, "c1"))
+    (tmp_path / "runner.py").write_text("class Runner:\n    def run(self,c,i,p=''): return '2'\n")
+    b = regime_hash(regime_payload(cfg, "c1"))
+    assert a != b  # a scoring/parse-logic edit bumps the regime
+
+
+def test_logic_hash_is_deterministic_when_source_unchanged(tmp_path):
+    (tmp_path / "runner.py").write_text("X")
+    cfg = _cfg(tmp_path); cfg.runner = "runner.py:Runner"
+    assert regime_hash(regime_payload(cfg, "c1")) == regime_hash(regime_payload(cfg, "c1"))

@@ -9,6 +9,7 @@ class _Cfg:
     holdout_pct = 30
     guards = {"anomaly_at": 0.98}
     model = {"name": "m"}
+    runner = "runner.py:Runner"           # source fingerprint reads this (missing -> deterministic)
     project_dir = "/nonexistent"          # eval_set fingerprint falls back to "ingest-full"
     bench = {"eval_set": ""}
 

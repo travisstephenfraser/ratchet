@@ -28,12 +28,32 @@ def _truth_fingerprint(truth) -> str:
     return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:12]
 
 
+def _source_fingerprint(config) -> str:
+    """Hash of the source that defines what a PREDICTION and a SCORE mean: the runner
+    (model call + parse) plus the project objective when it is custom/judge. ingest.py is
+    NOT hashed here because _truth_fingerprint already fingerprints its output. Conservative:
+    a formatting-only edit also bumps the regime, which is the safe over-block direction."""
+    refs = [config.runner]
+    if config.objective.name == "custom":
+        refs.append("objective.py:make_objective")
+    elif config.objective.name == "judge":
+        refs.append("judge.py:judge_fn")
+    h = hashlib.sha256()
+    for ref in refs:
+        filename = ref.split(":")[0]
+        p = Path(config.project_dir) / filename
+        h.update(filename.encode())
+        h.update(p.read_bytes() if p.exists() else b"<missing>")
+    return h.hexdigest()[:12]
+
+
 def regime_payload(config, constraints_version, truth=None) -> dict:
     frozen = {
         "holdout_pct": config.holdout_pct,
         "guards": config.guards,
         "model": config.model,
         "eval_set": _eval_set_fingerprint(config),
+        "logic": _source_fingerprint(config),
     }
     # Content of the derived ground truth. Omitted when truth is not supplied (unit tests),
     # but every real entry point passes it, so a relabel or an item-set change bumps the hash.

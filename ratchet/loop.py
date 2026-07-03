@@ -90,7 +90,8 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
              policy="", train_preds=None):
     log_holdout_access(log_path, "escalation_gate", best["cid"])
     if train_preds is None:
-        train_preds = run_candidate_over(project, best["instructions"], train_ids, items, policy)
+        train_preds = run_candidate_over(project, best["instructions"], train_ids, items, policy,
+                                         max_miss_rate=project.config.guards.get("max_miss_rate"))
     else:
         # Caller-supplied train_preds must belong to the train split — catch wrong-split preds.
         rogue = set(train_preds) - set(train_ids)
@@ -98,7 +99,8 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
             raise ValueError(
                 f"escalate: train_preds contains keys not in train_ids: {sorted(rogue)}"
             )
-    holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy)
+    holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy,
+                                       max_miss_rate=project.config.guards.get("max_miss_rate"))
     # Guard against gross misalignment: non-empty id list but zero predictions produced.
     if train_ids and not train_preds:
         raise ValueError(

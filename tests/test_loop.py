@@ -132,3 +132,23 @@ def test_escalate_gap_gate(tmp_path):
                     log_path=tmp_path / "holdout_access.log")
     assert gate["overfit"] is False
     assert (tmp_path / "holdout_access.log").exists()
+
+
+def test_escalate_halts_on_systematic_holdout_parse_failure(tmp_path):
+    import pytest
+    class _P(_Project):
+        def __init__(self):
+            super().__init__()
+            self.config.guards["max_miss_rate"] = 0.5   # __init__ sets config; set the knob here
+        class _R:
+            def run(self, candidate, item, policy=""):
+                if item.get("holdout"):
+                    raise Unparseable("model returned garbage")
+                return 10
+        runner = _R()
+    items = {"a": {}, "b": {}, "h1": {"holdout": True}, "h2": {"holdout": True}}
+    with pytest.raises(ValueError, match="systematic parse failure"):
+        escalate(_P(), {"cid": "x", "instructions": "grade", "metrics": {}},
+                 ["a", "b"], ["h1", "h2"], items,
+                 {"a": "10", "b": "10", "h1": "10", "h2": "10"},
+                 log_path=tmp_path / "holdout_access.log")

@@ -43,11 +43,14 @@ def run_candidate_over(project, candidate, ids, items, policy="", *, max_miss_ra
     # broken model/harness emitting Unparseable in bulk, which escalate()'s 0-pred guard
     # only catches at 100%. Applied to the base only (see hill_climb), so a merely-bad
     # mutation still just scores low instead of aborting the run.
-    if max_miss_rate is not None and attempted and misses / attempted > max_miss_rate:
-        raise ValueError(
-            f"{misses}/{attempted} items unparseable "
-            f"({misses / attempted:.0%} > {max_miss_rate:.0%} max_miss_rate) — "
-            "systematic parse failure on a known-good candidate, halting for review")
+    if max_miss_rate is not None:
+        if ids and attempted == 0:
+            raise ValueError(f"no items scored: {len(ids)} ids share no keys with the items dict")
+        if attempted and misses / attempted > max_miss_rate:
+            raise ValueError(
+                f"{misses}/{attempted} items unparseable "
+                f"({misses / attempted:.0%} > {max_miss_rate:.0%} max_miss_rate) — "
+                "systematic parse failure on a known-good candidate, halting for review")
     return preds
 
 

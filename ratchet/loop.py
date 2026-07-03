@@ -39,10 +39,11 @@ def run_candidate_over(project, candidate, ids, items, policy="", *, max_miss_ra
             raise ValueError(f"runner returned None for {i} (fail-loud: parse must raise Unparseable)")
         preds[i] = str(p)
     # Opt-in systematic-failure guard (guards.max_miss_rate; off by default). A KNOWN-GOOD
-    # candidate — the base — missing more than this rate is not "a few bad frames"; it is a
-    # broken model/harness emitting Unparseable in bulk, which escalate()'s 0-pred guard
-    # only catches at 100%. Applied to the base only (see hill_climb), so a merely-bad
-    # mutation still just scores low instead of aborting the run.
+    # candidate missing more than this rate is not "a few bad frames"; it is a broken
+    # model/harness emitting Unparseable in bulk, which escalate()'s 0-pred guard only
+    # catches at 100%. Applied to the base during the climb and to the winner at the
+    # escalate gate; mid-climb mutations are unguarded, so a merely-bad mutation still
+    # just scores low instead of aborting the run.
     if max_miss_rate is not None:
         if ids and attempted == 0:
             raise ValueError(f"no items scored: {len(ids)} ids share no keys with the items dict")

@@ -28,6 +28,19 @@ def test_bench_ranks_same_regime(tmp_path):
     assert rows[0]["regime"] == rows[1]["regime"]
 
 
+def test_bench_regime_includes_truth_fingerprint(tmp_path):
+    # The bench regime must be the same truth-inclusive hash enforce_regime baselines,
+    # so a sanctioned relabel changes it instead of silently pooling bench rows.
+    from ratchet.regime import regime_payload, regime_hash
+    proj = _Project(tmp_path)
+    truth = {"a": "10", "b": "10"}
+    rows = bench(proj, ["good"], ["a", "b"], {"a": {}, "b": {}}, truth, constraints_version="c1")
+    assert rows[0]["regime"] == regime_hash(regime_payload(proj.config, "c1", truth))
+    relabeled = bench(proj, ["good"], ["a", "b"], {"a": {}, "b": {}},
+                      {"a": "10", "b": "99"}, constraints_version="c1")
+    assert relabeled[0]["regime"] != rows[0]["regime"]
+
+
 def test_load_eval_ids_reads_frozen_set(tmp_path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "eval_set.txt").write_text("a\nc\n")

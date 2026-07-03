@@ -19,7 +19,7 @@ def load_eval_ids(project, truth):
 
 
 def bench(project, candidates, eval_ids, items, truth, constraints_version, policy="", out_dir=None):
-    regime = regime_hash(regime_payload(project.config, constraints_version))
+    regime = regime_hash(regime_payload(project.config, constraints_version, truth))
     rows = []
     for cand in candidates:
         preds = run_candidate_over(project, cand, eval_ids, items, policy)

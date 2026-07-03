@@ -56,7 +56,8 @@ def preds_regime_gate(stamped, current):
 class Predictions(dict):
     """Prediction map carrying the regime it was produced under (None = unstamped).
     A dict subclass so every existing consumer and plain-dict caller keeps working;
-    the stamp travels WITH the data, like the CSV comment line it mirrors."""
+    the stamp travels WITH the data, like the CSV comment line it mirrors.
+    Standard dict copy/merge operations (.copy(), dict(p), {**p}) return a plain dict and DROP the stamp; re-wrap with Predictions(..., regime=...) after copying."""
     def __init__(self, data=None, *, regime=None):
         super().__init__(data or {})
         self.regime = regime
@@ -80,7 +81,7 @@ def check_expected_regime(preds, expected_regime):
         return
     stamped = getattr(preds, "regime", None)
     if stamped is None:
-        warnings.warn(UNSTAMPED_PREDS_WARNING.format(expected=expected_regime))
+        warnings.warn(UNSTAMPED_PREDS_WARNING.format(expected=expected_regime), stacklevel=3)
         return
     guard_compare(stamped, expected_regime)  # raises RegimeMismatch on mismatch
 

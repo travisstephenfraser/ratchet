@@ -164,6 +164,19 @@ def test_gap_report_guards_once():
     assert len([w for w in caught if "no regime stamp" in str(w.message)]) == 1
 
 
+def test_gap_report_matching_regime_is_silent():
+    import warnings
+    from ratchet.verifier import Predictions
+    truth = {"a": "10", "b": "10"}
+    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25}
+    preds = Predictions(truth, regime="r1")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        r = gap_report(preds, truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
+                       expected_regime="r1")
+    assert r["gap"] == 0.0 and not caught
+
+
 def test_load_column_returns_stamped_predictions(tmp_path):
     from ratchet.verifier import preds_regime_header
     p = tmp_path / "preds.csv"

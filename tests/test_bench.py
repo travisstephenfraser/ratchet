@@ -37,3 +37,15 @@ def test_load_eval_ids_reads_frozen_set(tmp_path):
 def test_load_eval_ids_falls_back_to_all(tmp_path):
     proj = _Project(tmp_path)  # no eval_set file
     assert sorted(load_eval_ids(proj, {"a": "1", "b": "1"})) == ["a", "b"]
+
+
+def test_bench_raises_when_a_candidate_produces_no_predictions(tmp_path):
+    import pytest
+    from ratchet.adapter import Unparseable
+    proj = _Project(tmp_path)
+    class _R:
+        def run(self, candidate, item, policy=""):
+            raise Unparseable("garbage")
+    proj.runner = _R()
+    with pytest.raises(ValueError, match="0/2 .* produced predictions"):
+        bench(proj, ["cand"], ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"}, "c1")

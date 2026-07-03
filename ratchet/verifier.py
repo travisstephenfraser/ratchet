@@ -30,13 +30,18 @@ def split_ids(ids, salt, holdout_pct):
 def score_split(preds, truth, ids, objective, anomaly_at):
     if objective.direction not in ("max", "min"):
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
-    base = objective.score(preds, truth, ids)
+    # hand the objective only the labels for the ids being scored, never the whole vault
+    scoped_truth = {i: truth[i] for i in ids if i in truth}
+    base = objective.score(preds, scoped_truth, ids)
     val = base["objective"]
     anomaly = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
     return {**base, "anomaly": anomaly}
 
 
 def gap_report(preds, truth, train, holdout, objective, guards):
+    overlap = set(train) & set(holdout)
+    if overlap:
+        raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
     tr = score_split(preds, truth, train, objective, guards["anomaly_at"])
     ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"])
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \

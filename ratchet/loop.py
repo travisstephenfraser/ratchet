@@ -43,11 +43,14 @@ def run_candidate_over(project, candidate, ids, items, policy="", *, max_miss_ra
     # broken model/harness emitting Unparseable in bulk, which escalate()'s 0-pred guard
     # only catches at 100%. Applied to the base only (see hill_climb), so a merely-bad
     # mutation still just scores low instead of aborting the run.
-    if max_miss_rate is not None and attempted and misses / attempted > max_miss_rate:
-        raise ValueError(
-            f"{misses}/{attempted} items unparseable "
-            f"({misses / attempted:.0%} > {max_miss_rate:.0%} max_miss_rate) — "
-            "systematic parse failure on a known-good candidate, halting for review")
+    if max_miss_rate is not None:
+        if ids and attempted == 0:
+            raise ValueError(f"no items scored: {len(ids)} ids share no keys with the items dict")
+        if attempted and misses / attempted > max_miss_rate:
+            raise ValueError(
+                f"{misses}/{attempted} items unparseable "
+                f"({misses / attempted:.0%} > {max_miss_rate:.0%} max_miss_rate) — "
+                "systematic parse failure on a known-good candidate, halting for review")
     return preds
 
 
@@ -90,7 +93,8 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
              policy="", train_preds=None):
     log_holdout_access(log_path, "escalation_gate", best["cid"])
     if train_preds is None:
-        train_preds = run_candidate_over(project, best["instructions"], train_ids, items, policy)
+        train_preds = run_candidate_over(project, best["instructions"], train_ids, items, policy,
+                                         max_miss_rate=project.config.guards.get("max_miss_rate"))
     else:
         # Caller-supplied train_preds must belong to the train split — catch wrong-split preds.
         rogue = set(train_preds) - set(train_ids)
@@ -98,7 +102,8 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
             raise ValueError(
                 f"escalate: train_preds contains keys not in train_ids: {sorted(rogue)}"
             )
-    holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy)
+    holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy,
+                                       max_miss_rate=project.config.guards.get("max_miss_rate"))
     # Guard against gross misalignment: non-empty id list but zero predictions produced.
     if train_ids and not train_preds:
         raise ValueError(

@@ -59,6 +59,30 @@ def _temperature() -> float | None:
     return float(raw)
 
 
+_PARSE_CAUSE_NAMES = {"ValidationError", "JSONDecodeError"}
+
+
+def _is_parse_failure(exc) -> bool:
+    """Whether `exc` is an Instructor retry failure caused by a SCHEMA/JSON parse error
+    (demote to a miss) rather than a transport/infra fault (must halt). instructor wraps
+    EVERY failure, including openai.APIConnectionError and HTTP 500, in
+    InstructorRetryException (instructor/v2/core/retry.py), so matching the outer type is
+    not enough. Classify by walking the wrapped cause/context chain; err toward NOT-a-parse
+    (halt loudly) when the chain shows no validation error."""
+    if not any(c.__name__ == "InstructorRetryException" for c in type(exc).__mro__):
+        return False
+    seen, stack = set(), [exc.__cause__, exc.__context__]
+    while stack:
+        cur = stack.pop()
+        if cur is None or id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        if any(c.__name__ in _PARSE_CAUSE_NAMES for c in type(cur).__mro__):
+            return True
+        stack.extend([cur.__cause__, cur.__context__])
+    return False
+
+
 class Runner:
     def run(self, candidate, item, policy=""):
         if str(COSMOS_DIR) not in sys.path:
@@ -96,7 +120,9 @@ class Runner:
                 result = vlm.analyze_frame_structured(
                     frame, prompt, DirectionRead, temperature=temp, max_retries=0, **mode_kw)
             except Exception as e:
-                if any(c.__name__ == "InstructorRetryException" for c in type(e).__mro__):
+                # instructor wraps transport/infra faults in InstructorRetryException too,
+                # so only a validation/JSON cause is a real parse miss; everything else halts.
+                if _is_parse_failure(e):
                     raise Unparseable(f"structured parse failed for {frame.name}: {e}") from e
                 raise
             return result.direction

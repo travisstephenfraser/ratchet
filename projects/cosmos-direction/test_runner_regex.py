@@ -33,3 +33,43 @@ def test_regex_unparseable_raises(monkeypatch):
     from ratchet.adapter import Unparseable
     with pytest.raises(Unparseable):
         runner.Runner().run("cand", {"frame_path": "x.jpg", "telemetry": {}}, "")
+
+
+def test_is_parse_failure_classifies_by_cause_chain():
+    import runner
+    class InstructorRetryException(Exception):
+        pass
+    class ValidationError(Exception):
+        pass
+    class APIConnectionError(Exception):
+        pass
+
+    # schema-validation cause -> a real parse miss -> demote
+    try:
+        try:
+            raise ValidationError("does not match DirectionRead")
+        except ValidationError as v:
+            raise InstructorRetryException("retries exhausted") from v
+    except InstructorRetryException as e:
+        assert runner._is_parse_failure(e) is True
+
+    # transport cause -> NOT a parse miss -> must halt
+    try:
+        try:
+            raise APIConnectionError("connection refused")
+        except APIConnectionError as a:
+            raise InstructorRetryException("retries exhausted") from a
+    except InstructorRetryException as e:
+        assert runner._is_parse_failure(e) is False
+
+    # implicit chaining (raise without `from`) is followed too
+    try:
+        try:
+            raise ValidationError("bad json")
+        except ValidationError:
+            raise InstructorRetryException("wrapped implicitly")
+    except InstructorRetryException as e:
+        assert runner._is_parse_failure(e) is True
+
+    # an unrelated exception is never a parse failure
+    assert runner._is_parse_failure(ValueError("x")) is False

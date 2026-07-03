@@ -46,3 +46,26 @@ def test_score_split_rejects_bad_direction():
             return {"objective": 0.5, "n": 1, "graded": 1}
     with pytest.raises(ValueError, match="unknown objective direction"):
         score_split({"a": "1"}, {"a": "1"}, ["a"], _BadObj(), anomaly_at=0.95)
+
+
+def test_score_split_slices_truth_to_ids():
+    class _Snoop:
+        direction = "max"
+        seen_keys = None
+        def score(self, preds, truth, ids):
+            _Snoop.seen_keys = set(truth)
+            return {"objective": 1.0}
+
+    truth = {"a": "1", "b": "1", "HOLDOUT": "9"}
+    score_split({"a": "1"}, truth, ["a", "b"], _Snoop(), anomaly_at=0.98)
+    # the objective must NOT see the holdout label during a train-split scoring call
+    assert _Snoop.seen_keys == {"a", "b"}
+    assert "HOLDOUT" not in _Snoop.seen_keys
+
+
+def test_gap_report_rejects_overlapping_splits():
+    truth = {"a": "10", "b": "10", "c": "10"}
+    preds = {"a": "10", "b": "10", "c": "10"}
+    with pytest.raises(ValueError, match="disjoint"):
+        gap_report(preds, truth, ["a", "b"], ["b", "c"], WithinTol(tol=0.5),
+                   {"anomaly_at": 0.98, "overfit_gap": 0.25})

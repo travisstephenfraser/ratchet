@@ -7,9 +7,30 @@ import hashlib
 from datetime import datetime, timezone
 
 
+PREDS_REGIME_PREFIX = "# ratchet-regime: "
+
+
+def preds_regime_header(regime) -> str:
+    """The comment line that stamps a preds CSV with the regime it was generated under.
+    load_column skips it; read_preds_regime reads it back for the comparability guard."""
+    return f"{PREDS_REGIME_PREFIX}{regime}\n"
+
+
+def read_preds_regime(path):
+    """Return the regime a preds file was stamped with, or None if it is unstamped (a
+    legacy or externally generated file). Stops at the first data line."""
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            if line.startswith(PREDS_REGIME_PREFIX):
+                return line[len(PREDS_REGIME_PREFIX):].strip()
+            if line.strip() and not line.startswith("#"):
+                return None
+    return None
+
+
 def load_column(path, value_field=None):
     with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(line for line in f if not line.startswith("#"))
         fields = reader.fieldnames or []
         if value_field is None:
             rest = [c for c in fields if c != "anon_id"]

@@ -69,3 +69,20 @@ def test_gap_report_rejects_overlapping_splits():
     with pytest.raises(ValueError, match="disjoint"):
         gap_report(preds, truth, ["a", "b"], ["b", "c"], WithinTol(tol=0.5),
                    {"anomaly_at": 0.98, "overfit_gap": 0.25})
+
+
+def test_preds_regime_round_trip(tmp_path):
+    from ratchet.verifier import preds_regime_header, read_preds_regime, load_column
+    p = tmp_path / "preds.csv"
+    p.write_text(preds_regime_header("abc123def456") + "anon_id,direction\nid1,DOWNHILL\n")
+    # the stamp is readable, and load_column ignores the comment line
+    assert read_preds_regime(p) == "abc123def456"
+    assert load_column(p) == {"id1": "DOWNHILL"}
+
+
+def test_read_preds_regime_none_when_unstamped(tmp_path):
+    from ratchet.verifier import read_preds_regime, load_column
+    p = tmp_path / "legacy.csv"
+    p.write_text("anon_id,direction\nid1,UPHILL\n")  # no stamp
+    assert read_preds_regime(p) is None
+    assert load_column(p) == {"id1": "UPHILL"}

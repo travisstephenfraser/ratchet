@@ -210,6 +210,9 @@ def test_score_split_flags_low_coverage_when_floor_set():
     ok = score_split({"a": "10", "b": "10"}, {"a": "10", "b": "10"}, ["a", "b"],
                      WithinTol(tol=0.5), anomaly_at=0.98, min_coverage=0.6)
     assert ok["low_coverage"] is False
+    at_floor = score_split({"a": "10"}, {"a": "10", "b": "10"}, ["a", "b"],
+                           WithinTol(tol=0.5), anomaly_at=0.98, min_coverage=0.5)
+    assert at_floor["low_coverage"] is False           # floor is inclusive: == passes
 
 
 def test_goodhart_one_easy_item_mae_is_flagged():

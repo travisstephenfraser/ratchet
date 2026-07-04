@@ -32,14 +32,16 @@ def main():
     if args.split != "train":
         log_holdout_access(Path(args.project) / "holdout_access.log", "verify_cli", args.predictions)
     if args.split == "train":
-        result = score_split(preds, truth, train, proj.objective, guards["anomaly_at"])
+        result = score_split(preds, truth, train, proj.objective, guards["anomaly_at"],
+                             min_coverage=guards.get("min_coverage"))
     elif args.split == "holdout":
-        result = score_split(preds, truth, holdout, proj.objective, guards["anomaly_at"])
+        result = score_split(preds, truth, holdout, proj.objective, guards["anomaly_at"],
+                             min_coverage=guards.get("min_coverage"))
     else:
         result = gap_report(preds, truth, train, holdout, proj.objective, guards)
     json.dump(result, sys.stdout, indent=2, default=str)
     print()
-    if result.get("anomaly") or result.get("overfit"):
+    if result.get("anomaly") or result.get("overfit") or result.get("low_coverage"):
         sys.exit(2)
 
 

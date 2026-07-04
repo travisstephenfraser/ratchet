@@ -39,3 +39,24 @@ def test_regime_cli_rejects_blank_impact():
 def test_regime_cli_requires_impact():
     r = _run(["ratchet.regime_cli", "--project", str(TOY), "--why", "model swap"])
     assert r.returncode == 2
+
+
+def test_verify_exits_2_on_low_coverage(tmp_path):
+    # toy truth has 8 items; a preds file with ONE perfect row passes anomaly/overfit
+    # for mae but must trip a min_coverage gate. Toy's config has no min_coverage, so
+    # build a copy with the knob set.
+    import shutil
+    proj = tmp_path / "toy"
+    shutil.copytree(TOY, proj, ignore=shutil.ignore_patterns(
+        ".regime", "regime_log.jsonl", "candidates", "*.log", "LOOP_LOG.md", "bench_*.json"))
+    cfg = (proj / "config.yaml").read_text().replace(
+        "guards: {anomaly_at: 0.95, overfit_gap: 0.20}",
+        "guards: {anomaly_at: 0.95, overfit_gap: 0.20, min_coverage: 0.5}")
+    assert "min_coverage" in cfg, "toy guards line changed; update this test's replace()"
+    (proj / "config.yaml").write_text(cfg)
+    preds = tmp_path / "one.csv"
+    preds.write_text("anon_id,score\ntoy001,10\n")
+    r = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+              "--split", "train"])
+    assert r.returncode == 2
+    assert '"low_coverage": true' in r.stdout

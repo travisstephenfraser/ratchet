@@ -181,3 +181,59 @@ def test_run_candidate_over_stamps_regime():
     assert stamped.regime == "r1"
     unstamped = run_candidate_over(_Proj(), "cand", ["a"], {"a": {}})
     assert getattr(unstamped, "regime", None) is None
+
+
+def _mk_proj(coverage_runner, min_coverage):
+    from ratchet.objectives.within_tol import WithinTol
+
+    class _Proj:
+        objective = WithinTol(tol=0.5, climb="mae")
+        base_candidate = "base"
+        mutations = [("drop", lambda s: s + "-mutated")]
+        runner = coverage_runner
+        config = type("C", (), {
+            "guards": {"anomaly_at": -1.0, "overfit_gap": 0.9,
+                       "min_coverage": min_coverage},
+            "search": {"rounds": 1, "patience": 1},
+        })()
+    return _Proj()
+
+
+def test_hill_climb_halts_on_low_coverage_base():
+    from ratchet.loop import hill_climb
+
+    class _R:  # answers only 1 of 4 items regardless of candidate
+        def run(self, candidate, item, policy=""):
+            from ratchet.adapter import Unparseable
+            if item["k"] != 0:
+                raise Unparseable("skip")
+            return "10"
+
+    proj = _mk_proj(_R(), min_coverage=0.5)
+    ids = [f"i{k}" for k in range(4)]
+    items = {i: {"k": k} for k, i in enumerate(ids)}
+    truth = {i: "10" for i in ids}
+    import pytest
+    with pytest.raises(ValueError, match="coverage"):
+        hill_climb(proj, ids, items, truth, rounds=1, patience=1)
+
+
+def test_low_coverage_mutation_cannot_win():
+    from ratchet.loop import hill_climb
+
+    class _R:  # base answers everything imperfectly; the mutation answers ONE item
+        def run(self, candidate, item, policy=""):  # perfectly (mae=0.0 -> would win)
+            from ratchet.adapter import Unparseable
+            if candidate.endswith("-mutated"):
+                if item["k"] != 0:
+                    raise Unparseable("skip")
+                return "10"
+            return "11"                              # base: mae=1.0, full coverage
+
+    proj = _mk_proj(_R(), min_coverage=0.5)
+    ids = [f"i{k}" for k in range(4)]
+    items = {i: {"k": k} for k, i in enumerate(ids)}
+    truth = {i: "10" for i in ids}
+    best = hill_climb(proj, ids, items, truth, rounds=1, patience=1)
+    assert best["instructions"] == "base"            # mae 0.0 mutation was disqualified
+    assert best["metrics"]["mae"] == 1.0

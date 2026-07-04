@@ -42,8 +42,9 @@ def enforce_regime(project, constraints_version, ledger_path, truth):
         entries = ledger.entries()
     except ValueError as e:
         _fail(f"regime ledger is corrupt: {e}\n"
-              f"Fix or restore {ledger_path} before running; the ledger is the "
-              f"baseline's anchor and cannot be skipped.")
+              f"Edit or restore the named line in {ledger_path} before running — the "
+              f"ledger is the baseline's anchor and cannot be skipped. (regime_cli "
+              f"cannot repair this: the ledger is append-only.)")
     # The anchor: the newest ledger entry that recorded a resulting regime hash.
     anchor = next((e["regime"] for e in reversed(entries) if "regime" in e), None)
 
@@ -73,6 +74,11 @@ def enforce_regime(project, constraints_version, ledger_path, truth):
         _fail(f".regime does not match the ledger anchor ({old_hash} != {anchor}) — the "
               f"baseline was hand-edited or drifted.\n{_unblock(project)}")
 
+    # NOTE: `entries` is the pre-append snapshot; that is safe ONLY because anchor
+    # entries always carry changed=[] (so they can never satisfy _covered) and the
+    # legacy branch runs only when NO entry has a "regime" field (so the dedup check
+    # below cannot be confused by it). If _append_anchor ever populates `changed`,
+    # re-fetch entries here.
     if old_hash != current:
         changes = diff_payload(old, payload)
         if not _covered(changes, entries):

@@ -74,6 +74,7 @@ Every score carries two flags:
 
 - **anomaly** — the result is implausibly good (above `anomaly_at`), the classic signature of a verifier leak where the answer is reachable from the input.
 - **overfit** — the train-vs-holdout gap exceeds `overfit_gap`, the signature of memorization.
+- **min_coverage** (optional) — minimum fraction of split ids a candidate must answer for its score to count. Closes a Goodhart hole in ratio objectives: `mae` averages only the items a candidate answered, so answering one easy item posts `mae=0.0` and would win the climb. With the floor set, a low-coverage split is flagged (`low_coverage`), the candidate is disqualified from the hill-climb, and `verify` exits 2. Opt-in: projects that don't set it are unaffected.
 
 Both respect the objective's direction (`max` for within-tolerance/F1/judge, `min` for MAE), so "better" is never hard-coded.
 

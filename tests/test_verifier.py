@@ -192,3 +192,44 @@ def test_load_column_unstamped_file_has_no_regime(tmp_path):
     preds = load_column(p)
     assert preds == {"id1": "UPHILL"}
     assert preds.regime is None
+
+
+def test_score_split_computes_split_coverage():
+    m = score_split({"a": "10"}, {"a": "10", "b": "10"}, ["a", "b"],
+                    WithinTol(tol=0.5), anomaly_at=0.98)
+    assert m["split_coverage"] == 0.5
+    assert "low_coverage" not in m                     # knob unset -> no flag key
+    empty = score_split({}, {}, [], WithinTol(tol=0.5), anomaly_at=0.98)
+    assert empty["split_coverage"] == 0.0
+
+
+def test_score_split_flags_low_coverage_when_floor_set():
+    m = score_split({"a": "10"}, {"a": "10", "b": "10"}, ["a", "b"],
+                    WithinTol(tol=0.5), anomaly_at=0.98, min_coverage=0.6)
+    assert m["low_coverage"] is True
+    ok = score_split({"a": "10", "b": "10"}, {"a": "10", "b": "10"}, ["a", "b"],
+                     WithinTol(tol=0.5), anomaly_at=0.98, min_coverage=0.6)
+    assert ok["low_coverage"] is False
+
+
+def test_goodhart_one_easy_item_mae_is_flagged():
+    # The hole this feature closes: 1-of-10 answered, mae computed only over the
+    # graded item posts 0.0 — with the floor set, the split is flagged.
+    obj = WithinTol(tol=0.5, climb="mae")
+    ids = [f"i{k}" for k in range(10)]
+    truth = {i: "10" for i in ids}
+    m = score_split({"i0": "10"}, truth, ids, obj, anomaly_at=0.0, min_coverage=0.5)
+    assert m["mae"] == 0.0 and m["low_coverage"] is True
+
+
+def test_gap_report_surfaces_coverage_and_ors_the_flag():
+    truth = {"a": "10", "b": "10", "c": "10", "d": "10"}
+    preds = {"a": "10", "b": "10", "c": "10"}              # holdout d missing
+    guards = {"anomaly_at": 1.5, "overfit_gap": 0.9, "min_coverage": 0.6}
+    r = gap_report(preds, truth, ["a", "b"], ["c", "d"], WithinTol(tol=0.5), guards)
+    assert r["train_coverage"] == 1.0 and r["holdout_coverage"] == 0.5
+    assert r["low_coverage"] is True                       # holdout below floor
+    no_knob = gap_report(preds, truth, ["a", "b"], ["c", "d"], WithinTol(tol=0.5),
+                         {"anomaly_at": 1.5, "overfit_gap": 0.9})
+    assert "low_coverage" not in no_knob
+    assert no_knob["train_coverage"] == 1.0                # informational keys always on

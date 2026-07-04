@@ -107,7 +107,8 @@ def split_ids(ids, salt, holdout_pct):
     return train, holdout
 
 
-def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None):
+def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None,
+                min_coverage=None):
     check_expected_regime(preds, expected_regime)
     if objective.direction not in ("max", "min"):
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
@@ -116,7 +117,13 @@ def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=Non
     base = objective.score(preds, scoped_truth, ids)
     val = base["objective"]
     anomaly = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
-    return {**base, "anomaly": anomaly}
+    # Coverage is computed by the CORE from (preds, ids) — never read from the
+    # objective's report — so a coverage-blind objective (mae) cannot Goodhart it.
+    coverage = sum(1 for i in ids if i in preds) / len(ids) if ids else 0.0
+    out = {**base, "anomaly": anomaly, "split_coverage": coverage}
+    if min_coverage is not None:
+        out["low_coverage"] = coverage < min_coverage
+    return out
 
 
 def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime=None):
@@ -124,12 +131,19 @@ def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regi
     if overlap:
         raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
     check_expected_regime(preds, expected_regime)
-    tr = score_split(preds, truth, train, objective, guards["anomaly_at"])
-    ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"])
+    min_cov = guards.get("min_coverage")
+    tr = score_split(preds, truth, train, objective, guards["anomaly_at"],
+                     min_coverage=min_cov)
+    ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"],
+                     min_coverage=min_cov)
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \
         else (ho["objective"] - tr["objective"])
-    return {"train": tr, "holdout": ho, "gap": gap,
-            "overfit": gap > guards["overfit_gap"], "anomaly": tr["anomaly"]}
+    out = {"train": tr, "holdout": ho, "gap": gap,
+           "overfit": gap > guards["overfit_gap"], "anomaly": tr["anomaly"],
+           "train_coverage": tr["split_coverage"], "holdout_coverage": ho["split_coverage"]}
+    if min_cov is not None:
+        out["low_coverage"] = tr["low_coverage"] or ho["low_coverage"]
+    return out
 
 
 def log_holdout_access(log_path, caller, predictions_path):

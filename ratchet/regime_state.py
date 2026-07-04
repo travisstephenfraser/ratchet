@@ -53,6 +53,9 @@ def enforce_regime(project, constraints_version, ledger_path, truth):
             _fail(f".regime is missing but the ledger anchors baseline {anchor} — an "
                   f"established project must not silently re-baseline.\n{_unblock(project)}")
         # True first run (or a legacy ledger predating anchors): baseline and anchor it.
+        # Deliberately reachable by wiping BOTH .regime and the ledger: destroying the
+        # append-only audit log is outside the threat model (accidents and casual
+        # self-gaming), which the lone-file checks above do cover.
         state_path.write_text(json.dumps(payload, sort_keys=True))
         _append_anchor(ledger, project, current,
                        "initial baseline" if not entries else "anchor existing baseline")

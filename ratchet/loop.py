@@ -57,8 +57,10 @@ def run_candidate_over(project, candidate, ids, items, policy="", *, max_miss_ra
 
 
 def _eval(project, candidate, ids, items, truth, policy, regime, out_dir, label, max_miss_rate=None):
-    preds = run_candidate_over(project, candidate, ids, items, policy, max_miss_rate=max_miss_rate, regime=regime)
-    m = score_split(preds, truth, ids, project.objective, project.config.guards["anomaly_at"])
+    preds = run_candidate_over(project, candidate, ids, items, policy,
+                               max_miss_rate=max_miss_rate, regime=regime)
+    m = score_split(preds, truth, ids, project.objective, project.config.guards["anomaly_at"],
+                    min_coverage=project.config.guards.get("min_coverage"))
     cid = cand_id(candidate)
     if out_dir is not None:
         results.write_candidate(out_dir, cid, candidate, preds, m, regime)
@@ -72,6 +74,11 @@ def hill_climb(project, train_ids, items, truth, rounds, patience,
     # a broken model/harness (halt), whereas a bad mutation is allowed to just score low.
     best = _eval(project, project.base_candidate, train_ids, items, truth, policy, regime, out_dir, "base",
                  max_miss_rate=project.config.guards.get("max_miss_rate"))
+    if best["metrics"].get("low_coverage"):
+        raise ValueError(
+            f"base candidate coverage {best['metrics']['split_coverage']:.0%} is below "
+            f"guards.min_coverage — a known-good candidate under the floor means a broken "
+            f"model/harness, halting for review")
     direction = project.objective.direction
     seen, stale = {best["cid"]}, 0
     for r in range(rounds):
@@ -85,6 +92,8 @@ def hill_climb(project, train_ids, items, truth, rounds, patience,
                 continue
             seen.add(cid)
             m = _eval(project, cand, train_ids, items, truth, policy, regime, out_dir, f"r{r+1}:{name}")
+            if m["metrics"].get("low_coverage"):
+                continue  # a low-coverage mutation may not win on a coverage-blind scalar
             if better(m["metrics"]["objective"], best["metrics"]["objective"], direction):
                 best, improved = m, True
         stale = 0 if improved else stale + 1

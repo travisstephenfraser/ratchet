@@ -68,7 +68,7 @@ If the runner produces no prediction for an item, that item still counts in the 
 
 If your model's response can't be parsed into a valid prediction, the runner **raises**. It never resolves a malformed answer to a silent `0`/miss. A silent zero makes a good mutation look like a regression and corrupts the hill-climb, so a parse failure is a crash, not a data point. Arithmetic (sums, clamps) happens in your code; the model emits judgments only.
 
-### Anti-leak and coverage guards, both direction-aware
+### Anti-leak and coverage guards
 
 Every score carries these flags:
 

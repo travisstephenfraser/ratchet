@@ -103,9 +103,9 @@ class RegimeLedger:
     def __init__(self, path):
         self.path = Path(path)
 
-    def record(self, *, version, changed, why, impact, author, timestamp):
+    def record(self, *, version, changed, why, impact, author, timestamp, regime):
         entry = {"version": version, "timestamp": timestamp, "author": author,
-                 "why": why, "impact": impact,
+                 "why": why, "impact": impact, "regime": regime,
                  "changed": [{"field": f, "old": o, "new": n} for f, o, n in changed]}
         with open(self.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
@@ -113,4 +113,12 @@ class RegimeLedger:
     def entries(self):
         if not self.path.exists():
             return []
-        return [json.loads(l) for l in self.path.read_text().splitlines() if l.strip()]
+        out = []
+        for lineno, line in enumerate(self.path.read_text().splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                out.append(json.loads(line))
+            except ValueError as e:
+                raise ValueError(f"{self.path}:{lineno}: corrupt ledger line ({e})") from e
+        return out

@@ -38,8 +38,20 @@ def enforce_regime(project, constraints_version, ledger_path, truth):
 def record_bump(project, constraints_version, why, impact, author, timestamp, ledger_path, truth):
     payload = regime_payload(project.config, constraints_version, truth)
     state_path = Path(project.config.project_dir) / ".regime"
-    old = json.loads(state_path.read_text()) if state_path.exists() else {}
+    old = {}
+    if state_path.exists():
+        try:
+            old = json.loads(state_path.read_text())
+        except ValueError:
+            # record_bump IS the recovery path for a corrupt baseline: warn, diff from empty.
+            print(f"warning: existing {state_path} is corrupt; re-anchoring from scratch",
+                  file=sys.stderr)
     changes = diff_payload(old, payload)
     RegimeLedger(ledger_path).record(version=project.config.version, changed=changes,
-                                     why=why, impact=impact, author=author, timestamp=timestamp)
+                                     why=why, impact=impact, author=author,
+                                     timestamp=timestamp,
+                                     regime=regime_hash(payload))
+    # Rewrite the baseline in the same call, establishing the invariant that after any
+    # sanctioned operation hash(.regime) == the ledger's newest anchor.
+    state_path.write_text(json.dumps(payload, sort_keys=True))
     return changes

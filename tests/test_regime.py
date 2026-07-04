@@ -63,7 +63,7 @@ def test_ledger_roundtrip(tmp_path):
     led = RegimeLedger(tmp_path / "regime_log.jsonl")
     led.record(version="v2", changed=[("frozen.model.max_tokens", 1500, 4000)],
                why="Qwen truncated", impact="re-baseline all", author="reviewer",
-               timestamp="2026-06-25T00:00:00Z")
+               timestamp="2026-06-25T00:00:00Z", regime="abc123def456")
     assert led.entries()[0]["version"] == "v2"
     assert led.entries()[0]["changed"][0]["new"] == 4000
 
@@ -116,3 +116,19 @@ def test_enforce_regime_blocks_on_relabeled_truth(tmp_path):
     with pytest.raises(SystemExit) as ei:
         enforce_regime(_P(cfg), "c1", ledger, {"id1": "UPHILL"})
     assert ei.value.code == 2
+
+
+def test_ledger_entry_carries_regime(tmp_path):
+    from ratchet.regime import RegimeLedger
+    led = RegimeLedger(tmp_path / "log.jsonl")
+    led.record(version="v1", changed=[("f", 1, 2)], why="w", impact="i",
+               author="a", timestamp="t", regime="abc123def456")
+    assert led.entries()[0]["regime"] == "abc123def456"
+
+
+def test_ledger_corrupt_line_raises_with_line_number(tmp_path):
+    from ratchet.regime import RegimeLedger
+    p = tmp_path / "log.jsonl"
+    p.write_text('{"version": "v1"}\nnot json{{{\n')
+    with pytest.raises(ValueError, match=r"log\.jsonl:2"):
+        RegimeLedger(p).entries()

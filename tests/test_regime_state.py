@@ -37,3 +37,31 @@ def test_silent_change_blocks_then_passes_after_bump(tmp_path):
     record_bump(proj2, "c1", why="Qwen truncated", impact="re-baseline",
                 author="reviewer", timestamp="2026-06-25T00:00:00Z", ledger_path=ledger, truth=truth)
     assert enforce_regime(proj2, "c1", ledger, truth)         # now unblocked
+
+
+def test_record_bump_rewrites_regime_and_anchors(tmp_path):
+    import json as _json
+    from ratchet.regime import regime_payload, regime_hash, RegimeLedger
+    ledger = tmp_path / "regime_log.jsonl"
+    proj1 = _proj(tmp_path, 1500)
+    _, truth = proj1.ingest()
+    enforce_regime(proj1, "c1", ledger, truth)
+    proj2 = _proj(tmp_path, 4000)                              # frozen-param change
+    record_bump(proj2, "c1", why="w", impact="i", author="a",
+                timestamp="t", ledger_path=ledger, truth=truth)
+    new_hash = regime_hash(regime_payload(proj2.config, "c1", truth))
+    on_disk = _json.loads((tmp_path / ".regime").read_text())
+    assert regime_hash(on_disk) == new_hash                    # .regime advanced in-call
+    assert RegimeLedger(ledger).entries()[-1]["regime"] == new_hash
+
+
+def test_record_bump_recovers_from_corrupt_regime_file(tmp_path, capsys):
+    ledger = tmp_path / "regime_log.jsonl"
+    proj = _proj(tmp_path, 1500)
+    _, truth = proj.ingest()
+    enforce_regime(proj, "c1", ledger, truth)
+    (tmp_path / ".regime").write_text("GARBAGE{{{")
+    record_bump(proj, "c1", why="restore", impact="re-anchor", author="a",
+                timestamp="t", ledger_path=ledger, truth=truth)
+    assert "corrupt" in capsys.readouterr().err.lower()        # warned, not crashed
+    assert enforce_regime(proj, "c1", ledger, truth)           # clean again

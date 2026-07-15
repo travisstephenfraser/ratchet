@@ -7,17 +7,21 @@ edit `ratchet/` (the core).
 
 1. **Minimal base.** `base.txt` = role, data, task + definition-of-done, output shape.
 2. **Ingest your ground truth.** Implement `ingest()` — you export the truth yourself.
-   Data under `data/` (gitignored). Truth values are strings.
+   Data under `data/` (gitignored). Truth values are strings; item inputs must be
+   JSON-serializable so ratchet can fingerprint the exact evaluated content.
 3. **Pick an objective.** `within_tol` (numeric closeness; `params.climb: within|mae` —
    use `mae` when within-rate ceilings and gives no gradient), `prf1` (classification/
    extraction), or `judge` (open-ended; add `judge.py:judge_fn(pred, rubric) -> float`).
    Need something else? `objective.name: custom` + `objective.py:make_objective(params)`.
-4. **Run the eval, read failure modes.** `python -m ratchet.loop_cli --project projects/<name>`.
+4. **Establish the baseline.** Run `python -m ratchet.loop_cli --project
+   projects/<name> --establish-baseline`. This reads the holdout once and logs that access;
+   paste the printed values into `guards.baseline`, then record the regime rationale.
+5. **Run the eval, read failure modes.** `python -m ratchet.loop_cli --project projects/<name>`.
    Ask how each failure generalizes beyond the one case.
-5. **Add mutations to address failures — structurally.** A field, a criterion, a tool.
+6. **Add mutations to address failures — structurally.** A field, a criterion, a tool.
    Not exhortation ("NEVER", "CRITICAL"). Long ban-lists backfire on strong models.
-6. **Escalate.** `--escalate` grades the winner on the holdout and runs the overfit gate.
-   Survives → real. Fails → it memorized the train split.
+7. **Escalate.** `--escalate` grades the winner on the holdout and runs regression,
+   anomaly, coverage, and overfit guards. Survives → real. Fails → inspect the named guard.
 
 ## Two meanings of "candidate"
 
@@ -31,12 +35,13 @@ Reviewer verdicts go in `constraints.jsonl` via `add_constraint(...)` — they p
 every candidate as policy (the runner passes `policy` into `assemble`). Do NOT paste them
 into `base.txt`. Write them **two-sided** (cost of escalating AND cost of a wrong answer),
 never one-sided. Periodically run `python -m ratchet.constraints_cli --project
-projects/<name> --review` to catch contradictions and one-sided language, then
+projects/<name> --review` to catch duplicates and one-sided language, then
 `--consolidate "<why>"` to record what you cleaned up.
 
 ## Versioning
 
-Changing the salt, objective, guards, model, or eval-set contents changes the **regime**.
+Changing the salt, objective, guards/baselines, model, truth, item contents, runner/core
+scoring source, declared environment, or eval-set contents changes the **regime**.
 Any scoring command BLOCKS until you record why:
 `python -m ratchet.regime_cli --project projects/<name> --why "..." --impact "..."`.
 The version number points; the ledger explains. Cross-regime results are never pooled.
@@ -45,8 +50,8 @@ The version number points; the ledger explains. Cross-regime results are never p
 
 All five entry points, one line each:
 
-- `python -m ratchet.loop_cli --project projects/<name> [--escalate]` — hill-climb search on the train split; `--escalate` grades the winner on the holdout and runs the overfit gate.
+- `python -m ratchet.loop_cli --project projects/<name> [--escalate|--establish-baseline]` — establish frozen split baselines, hill-climb on train, or grade the winner on holdout and report all guards.
 - `python -m ratchet.bench_cli --project projects/<name>` — frozen-param bench comparison across model candidates on the eval set.
-- `python -m ratchet.verify --project projects/<name> --predictions <csv> --split train|holdout|gap` — score predictions against ground truth; exits 2 on anomaly or overfit.
-- `python -m ratchet.constraints_cli --project projects/<name> --review|--consolidate "<why>"` — constraints hygiene: flag contradictions and one-sided language, or record a consolidation.
+- `python -m ratchet.verify --project projects/<name> --predictions <csv> --split train|holdout|gap` — score predictions against truth and frozen baselines; exits 2 on regression, anomaly, overfit, or low coverage.
+- `python -m ratchet.constraints_cli --project projects/<name> --review|--consolidate "<why>"` — constraints hygiene: flag duplicates and one-sided language, or record a consolidation.
 - `python -m ratchet.regime_cli --project projects/<name> --why "..." --impact "..."` — record a regime bump so the next scoring command unblocks.

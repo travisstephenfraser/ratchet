@@ -33,8 +33,8 @@ def _append_anchor(ledger, project, regime, why):
                   regime=regime)
 
 
-def enforce_regime(project, constraints_version, ledger_path, truth):
-    payload = regime_payload(project.config, constraints_version, truth)
+def enforce_regime(project, constraints_version, ledger_path, truth, items=None):
+    payload = regime_payload(project.config, constraints_version, truth, items)
     current = regime_hash(payload)
     state_path = Path(project.config.project_dir) / ".regime"
     ledger = RegimeLedger(ledger_path)
@@ -100,8 +100,9 @@ def enforce_regime(project, constraints_version, ledger_path, truth):
     return current
 
 
-def record_bump(project, constraints_version, why, impact, author, timestamp, ledger_path, truth):
-    payload = regime_payload(project.config, constraints_version, truth)
+def record_bump(project, constraints_version, why, impact, author, timestamp, ledger_path, truth,
+                items=None):
+    payload = regime_payload(project.config, constraints_version, truth, items)
     state_path = Path(project.config.project_dir) / ".regime"
     old = {}
     if state_path.exists():

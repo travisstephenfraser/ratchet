@@ -4,6 +4,7 @@ The anomaly (verifier-leak) flag is surfaced at the top level of the gap report 
 re-checked at the escalation gate, so a leak is loud, not buried."""
 import csv
 import hashlib
+import math
 import warnings
 from datetime import datetime, timezone
 
@@ -38,7 +39,8 @@ LEGACY_PREDS_WARNING = (
     "  RISK: if they were generated under a different model, prompt, eval set, or label "
     "set, this score is comparing across incomparable rules, a silently wrong number that "
     "can PASS a gate it should fail, or FAIL one it should pass.\n"
-    "  FIX: regenerate the predictions with the current gen_preds so the file is stamped, "
+    "  FIX: regenerate the predictions with the current project prediction generator so "
+    "the file is stamped, "
     "or re-run generation and scoring under one regime."
 )
 
@@ -100,6 +102,8 @@ def load_column(path, value_field=None):
 
 
 def split_ids(ids, salt, holdout_pct):
+    if not 0 < holdout_pct < 100:
+        raise ValueError(f"holdout_pct must be between 0 and 100 (exclusive), got {holdout_pct}")
     train, holdout = [], []
     for anon in sorted(ids):
         bucket = int(hashlib.sha256(f"{salt}:{anon}".encode()).hexdigest()[:8], 16) % 100
@@ -107,8 +111,32 @@ def split_ids(ids, salt, holdout_pct):
     return train, holdout
 
 
+def _finite_baseline(value):
+    if isinstance(value, bool):
+        raise ValueError("frozen baseline objectives must be finite numbers, not booleans")
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError("frozen baseline objectives must be finite numbers") from e
+    if not math.isfinite(value):
+        raise ValueError("frozen baseline objectives must be finite numbers")
+    return value
+
+
+def validate_baselines(guards, splits=("train", "holdout")):
+    baseline = guards.get("baseline")
+    if not isinstance(baseline, dict):
+        raise ValueError("missing frozen baseline objectives in guards.baseline")
+    missing = [split for split in splits if split not in baseline]
+    if missing:
+        raise ValueError("missing frozen baseline objective for " + ", ".join(missing))
+    return {split: _finite_baseline(baseline[split]) for split in splits}
+
+
 def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None,
-                min_coverage=None):
+                min_coverage=None, baseline_objective=None):
+    if not ids:
+        raise ValueError("split must not be empty; add more labeled items or change the split salt")
     check_expected_regime(preds, expected_regime)
     if objective.direction not in ("max", "min"):
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
@@ -123,6 +151,12 @@ def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=Non
     out = {**base, "anomaly": anomaly, "split_coverage": coverage}
     if min_coverage is not None:
         out["low_coverage"] = coverage < min_coverage
+    if baseline_objective is not None:
+        baseline_objective = _finite_baseline(baseline_objective)
+        delta = (val - baseline_objective) if objective.direction == "max" \
+            else (baseline_objective - val)
+        out.update({"baseline_objective": baseline_objective,
+                    "objective_delta": delta, "regressed": delta < -1e-9})
     return out
 
 
@@ -132,17 +166,21 @@ def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regi
         raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
     check_expected_regime(preds, expected_regime)
     min_cov = guards.get("min_coverage")
+    baselines = validate_baselines(guards)
     tr = score_split(preds, truth, train, objective, guards["anomaly_at"],
-                     min_coverage=min_cov)
+                     min_coverage=min_cov, baseline_objective=baselines.get("train"))
     ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"],
-                     min_coverage=min_cov)
+                     min_coverage=min_cov, baseline_objective=baselines.get("holdout"))
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \
         else (ho["objective"] - tr["objective"])
     out = {"train": tr, "holdout": ho, "gap": gap,
-           "overfit": gap > guards["overfit_gap"], "anomaly": tr["anomaly"],
+           "overfit": gap > guards["overfit_gap"],
+           "anomaly": tr["anomaly"] or ho["anomaly"],
+           "train_anomaly": tr["anomaly"], "holdout_anomaly": ho["anomaly"],
            "train_coverage": tr["split_coverage"], "holdout_coverage": ho["split_coverage"]}
     if min_cov is not None:
         out["low_coverage"] = tr["low_coverage"] or ho["low_coverage"]
+    out["regressed"] = tr["regressed"] or ho["regressed"]
     return out
 
 

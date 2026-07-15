@@ -1,7 +1,7 @@
 """The escalation loop. Greedy hill-climb over the project's mutations on the TRAIN
 split only; the active constraints `policy` is threaded into every grading call; each
 candidate is persisted with its regime stamp; on plateau the best is escalated to the
-holdout gate. Works for any Runner + Objective."""
+holdout regression/anomaly/coverage/overfit gate. Works for any Runner + Objective."""
 import hashlib
 import sys
 

@@ -11,7 +11,7 @@ class _Cfg:
     model = {"name": "m"}
     runner = "runner.py:Runner"           # source fingerprint reads this (missing -> deterministic)
     project_dir = "/nonexistent"          # eval_set fingerprint falls back to "ingest-full"
-    bench = {"eval_set": ""}
+    bench = {"eval_set": None}
 
     class objective:
         name = "custom"

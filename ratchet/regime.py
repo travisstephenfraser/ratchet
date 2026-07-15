@@ -7,31 +7,75 @@ import json
 import os
 from pathlib import Path
 
+from . import __version__
+
 
 class RegimeMismatch(Exception):
     pass
 
 
 def _eval_set_fingerprint(config):
-    p = Path(config.project_dir) / config.bench.get("eval_set", "")
-    if config.bench.get("eval_set") and p.exists():
+    if "eval_set" not in config.bench:
+        raise ValueError("bench.eval_set must be a path or explicit null")
+    configured = config.bench["eval_set"]
+    if configured is None:
+        return "ingest-full"
+    if not isinstance(configured, str) or not configured.strip():
+        raise ValueError("bench.eval_set must be a path or explicit null")
+    p = Path(config.project_dir) / configured
+    if p.exists():
         return hashlib.sha256(p.read_bytes()).hexdigest()[:12]
     return "ingest-full"
 
 
 def _truth_fingerprint(truth) -> str:
     """Content hash of the derived (id, label) ground truth. Fingerprints the OUTPUT of
-    ingest(), so it closes the item-set, item-count, and truth-DERIVATION holes at once:
+    ingest(), so it closes the label-set, item-count, and truth-DERIVATION holes at once:
     change a relabeling constant (e.g. a gradient band) and every label flips, so this
     moves even when the id list and the config are byte-identical."""
     items = sorted((str(k), str(v)) for k, v in truth.items())
     return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:12]
 
 
+def _items_fingerprint(items) -> str:
+    """Canonical content hash of the actual inputs presented to the runner."""
+    normalized = sorted(((str(k), v) for k, v in items.items()), key=lambda pair: pair[0])
+    try:
+        blob = json.dumps(normalized, sort_keys=True, ensure_ascii=False,
+                          allow_nan=False, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        raise TypeError(
+            "ingested items must be JSON-serializable for a stable regime fingerprint; "
+            "convert custom objects to deterministic dict/list/scalar values in ingest()"
+        ) from e
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def _core_source_paths(config):
+    core = Path(__file__).parent
+    paths = [core / "verifier.py", core / "objectives" / "__init__.py"]
+    active = {
+        "within_tol": "within_tol.py",
+        "prf1": "prf1.py",
+        "judge": "judge.py",
+    }.get(config.objective.name)
+    if active:
+        paths.append(core / "objectives" / active)
+    return paths
+
+
+def _core_fingerprint(config) -> str:
+    h = hashlib.sha256(__version__.encode())
+    for path in _core_source_paths(config):
+        h.update(path.name.encode())
+        h.update(path.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def _source_fingerprint(config) -> str:
     """Hash of the source that defines what a PREDICTION and a SCORE mean: the runner
     (model call + parse) plus the project objective when it is custom/judge. ingest.py is
-    NOT hashed here because _truth_fingerprint already fingerprints its output. Conservative:
+    NOT hashed here because truth and item fingerprints cover its outputs. Conservative:
     a formatting-only edit also bumps the regime, which is the safe over-block direction."""
     refs = [config.runner]
     if config.objective.name == "custom":
@@ -47,18 +91,21 @@ def _source_fingerprint(config) -> str:
     return h.hexdigest()[:12]
 
 
-def regime_payload(config, constraints_version, truth=None) -> dict:
+def regime_payload(config, constraints_version, truth=None, items=None) -> dict:
     frozen = {
         "holdout_pct": config.holdout_pct,
         "guards": config.guards,
         "model": config.model,
         "eval_set": _eval_set_fingerprint(config),
         "logic": _source_fingerprint(config),
+        "scoring_core": {"version": __version__, "logic": _core_fingerprint(config)},
     }
     # Content of the derived ground truth. Omitted when truth is not supplied (unit tests),
     # but every real entry point passes it, so a relabel or an item-set change bumps the hash.
     if truth is not None:
         frozen["truth"] = _truth_fingerprint(truth)
+    if items is not None:
+        frozen["items"] = _items_fingerprint(items)
     # Environment knobs a project declares as regime-affecting (config.regime_env).
     # Folded in only when declared AND set, so projects that don't use it keep their
     # existing hash, and an unset knob doesn't perturb the fingerprint. This is what

@@ -34,9 +34,10 @@ def test_bench_regime_includes_truth_fingerprint(tmp_path):
     from ratchet.regime import regime_payload, regime_hash
     proj = _Project(tmp_path)
     truth = {"a": "10", "b": "10"}
-    rows = bench(proj, ["good"], ["a", "b"], {"a": {}, "b": {}}, truth, constraints_version="c1")
-    assert rows[0]["regime"] == regime_hash(regime_payload(proj.config, "c1", truth))
-    relabeled = bench(proj, ["good"], ["a", "b"], {"a": {}, "b": {}},
+    items = {"a": {}, "b": {}}
+    rows = bench(proj, ["good"], ["a", "b"], items, truth, constraints_version="c1")
+    assert rows[0]["regime"] == regime_hash(regime_payload(proj.config, "c1", truth, items))
+    relabeled = bench(proj, ["good"], ["a", "b"], items,
                       {"a": "10", "b": "99"}, constraints_version="c1")
     assert relabeled[0]["regime"] != rows[0]["regime"]
 
@@ -48,9 +49,41 @@ def test_load_eval_ids_reads_frozen_set(tmp_path):
     assert load_eval_ids(proj, {"a": "1", "b": "1", "c": "1"}) == ["a", "c"]
 
 
-def test_load_eval_ids_falls_back_to_all(tmp_path):
+def test_load_eval_ids_fails_when_configured_set_is_missing(tmp_path):
     proj = _Project(tmp_path)  # no eval_set file
+    import pytest
+    with pytest.raises(FileNotFoundError, match="configured bench eval set"):
+        load_eval_ids(proj, {"a": "1", "b": "1"})
+
+
+def test_load_eval_ids_uses_all_only_when_eval_set_is_explicitly_unset(tmp_path):
+    proj = _Project(tmp_path)
+    proj.config.bench["eval_set"] = None
     assert sorted(load_eval_ids(proj, {"a": "1", "b": "1"})) == ["a", "b"]
+
+
+def test_load_eval_ids_rejects_blank_or_absent_configuration(tmp_path):
+    import pytest
+    proj = _Project(tmp_path)
+    proj.config.bench["eval_set"] = ""
+    with pytest.raises(ValueError, match="must be a path or explicit null"):
+        load_eval_ids(proj, {"a": "1"})
+    del proj.config.bench["eval_set"]
+    with pytest.raises(ValueError, match="must be a path or explicit null"):
+        load_eval_ids(proj, {"a": "1"})
+
+
+def test_load_eval_ids_rejects_empty_or_unknown_configured_set(tmp_path):
+    import pytest
+    (tmp_path / "data").mkdir()
+    eval_set = tmp_path / "data" / "eval_set.txt"
+    proj = _Project(tmp_path)
+    eval_set.write_text("\n")
+    with pytest.raises(ValueError, match="empty"):
+        load_eval_ids(proj, {"a": "1"})
+    eval_set.write_text("unknown\n")
+    with pytest.raises(ValueError, match="unknown ids"):
+        load_eval_ids(proj, {"a": "1"})
 
 
 def test_bench_raises_when_a_candidate_produces_no_predictions(tmp_path):

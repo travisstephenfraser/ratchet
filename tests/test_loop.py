@@ -6,7 +6,8 @@ from ratchet.objectives.within_tol import WithinTol
 class _Project:
     def __init__(self):
         self.objective = WithinTol(tol=0.5)
-        self.config = type("C", (), {"guards": {"anomaly_at": 0.95, "overfit_gap": 0.10},
+        self.config = type("C", (), {"guards": {"anomaly_at": 0.95, "overfit_gap": 0.10,
+                                                   "baseline": {"train": 0.0, "holdout": 0.0}},
                                      "salt": "t", "holdout_pct": 30})()
         self.base_candidate = "grade"
         self.mutations = [("be-lenient", lambda c: c + " lenient")]

@@ -47,6 +47,14 @@ def test_hash_tracks_eval_set_CONTENTS_not_path(tmp_path):
     assert a != b
 
 
+@pytest.mark.parametrize("bench", [{}, {"eval_set": ""}, {"eval_set": "   "}])
+def test_regime_rejects_absent_or_blank_eval_set_configuration(tmp_path, bench):
+    cfg = _cfg(tmp_path)
+    cfg.bench = bench
+    with pytest.raises(ValueError, match="must be a path or explicit null"):
+        regime_payload(cfg, "c1")
+
+
 def test_diff_reports_field_old_new(tmp_path):
     old = regime_payload(_cfg(tmp_path, max_tokens=1500), "c1")
     new = regime_payload(_cfg(tmp_path, max_tokens=4000), "c1")
@@ -83,6 +91,32 @@ def test_hash_changes_when_item_set_changes(tmp_path):
     assert a != b
 
 
+def test_hash_changes_when_evaluated_item_content_changes(tmp_path):
+    cfg = _cfg(tmp_path)
+    truth = {"id1": "10"}
+    a = regime_hash(regime_payload(cfg, "c1", truth, {"id1": {"question": "2+2"}}))
+    b = regime_hash(regime_payload(cfg, "c1", truth, {"id1": {"question": "3+3"}}))
+    assert a != b
+
+
+def test_item_fingerprint_rejects_non_json_content(tmp_path):
+    cfg = _cfg(tmp_path)
+    with pytest.raises(TypeError, match="JSON-serializable"):
+        regime_payload(cfg, "c1", {"id1": "10"}, {"id1": object()})
+
+
+def test_core_scoring_fingerprint_changes_with_active_source(tmp_path, monkeypatch):
+    import ratchet.regime as regime
+    source = tmp_path / "active_objective.py"
+    source.write_text("SCORE = 1\n")
+    monkeypatch.setattr(regime, "_core_source_paths", lambda config: [source])
+    cfg = _cfg(tmp_path)
+    a = regime_hash(regime_payload(cfg, "c1"))
+    source.write_text("SCORE = 2\n")
+    b = regime_hash(regime_payload(cfg, "c1"))
+    assert a != b
+
+
 def test_truth_none_is_backward_compatible(tmp_path):
     # omitting truth must not perturb the hash relative to explicitly passing None
     cfg = _cfg(tmp_path)
@@ -116,6 +150,19 @@ def test_enforce_regime_blocks_on_relabeled_truth(tmp_path):
     with pytest.raises(SystemExit) as ei:
         enforce_regime(_P(cfg), "c1", ledger, {"id1": "UPHILL"})
     assert ei.value.code == 2
+
+
+def test_enforce_regime_blocks_on_changed_item_content(tmp_path):
+    from ratchet.regime_state import enforce_regime
+    class _P:
+        def __init__(self, cfg): self.config = cfg
+    cfg = _cfg(tmp_path)
+    ledger = tmp_path / "regime_log.jsonl"
+    truth = {"id1": "10"}
+    enforce_regime(_P(cfg), "c1", ledger, truth, {"id1": {"question": "2+2"}})
+    with pytest.raises(SystemExit) as exc:
+        enforce_regime(_P(cfg), "c1", ledger, truth, {"id1": {"question": "3+3"}})
+    assert exc.value.code == 2
 
 
 def test_ledger_entry_carries_regime(tmp_path):

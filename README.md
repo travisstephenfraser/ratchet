@@ -5,7 +5,7 @@ A small, portable scaffold for **evaluating and improving LLM prompts and models
 The same labeled set, objective, and frozen configuration power two directions off one project instance:
 
 - **Defend** (`verify`) — score a candidate against a baseline on a frozen set; exit non-zero if it regresses, leaks, or overfits. This is a regression gate you can drop into CI.
-- **Improve** (`loop`) — hill-climb a prompt against the objective, then make the winner survive a held-out overfit gate before you trust it.
+- **Improve** (`loop`) — hill-climb a prompt against the objective, then make the winner survive held-out regression, anomaly, coverage, and overfit guards before you trust it.
 
 The pivot is that *the same baseline is both the floor you cannot drop below and the bar to beat*. Author the labeled set once; get both directions for free. Quality stops being a hope and becomes a ratchet: never down, systematically up.
 
@@ -46,8 +46,8 @@ The five adapters a project implements (by shape, not by import; see `ratchet/ad
 
 | File | Contract |
 |---|---|
-| `config.yaml` | salt, holdout %, objective, guards, search params, model, bench set |
-| `ingest.py` | `ingest() -> (items, truth)` — **you** export your ground truth |
+| `config.yaml` | salt, holdout %, objective, frozen baseline, guards, search params, model, bench set |
+| `ingest.py` | `ingest() -> (items, truth)` — **you** export JSON-serializable inputs and ground truth |
 | `runner.py` | `Runner.run(candidate, item, policy) -> prediction` — the one place that calls your model |
 | `mutations.py` | `MUTATIONS = [(name, transform), ...]` — the moves the hill-climb can make |
 | `base.txt` | the starting prompt |
@@ -66,12 +66,13 @@ If the runner produces no prediction for an item, that item still counts in the 
 
 ### The runner fails loud
 
-If your model's response can't be parsed into a valid prediction, the runner **raises**. It never resolves a malformed answer to a silent `0`/miss. A silent zero makes a good mutation look like a regression and corrupts the hill-climb, so a parse failure is a crash, not a data point. Arithmetic (sums, clamps) happens in your code; the model emits judgments only.
+If your model's response can't be parsed into a valid prediction, the runner raises `Unparseable`; the core records that item as an explicit miss. Any other exception—transport, timeout, or harness bug—propagates and halts the run. An optional `max_miss_rate` turns systematic parse failure on a known-good candidate into a loud halt. Arithmetic (sums, clamps) happens in your code; the model emits judgments only.
 
 ### Anti-leak and coverage guards
 
-Every score carries these flags:
+Every gated verify/escalation report carries these flags:
 
+- **regressed** — the objective fell below the frozen split baseline (or rose above it for a minimizing objective).
 - **anomaly** — the result is implausibly good (above `anomaly_at`), the classic signature of a verifier leak where the answer is reachable from the input.
 - **overfit** — the train-vs-holdout gap exceeds `overfit_gap`, the signature of memorization.
 - **min_coverage** (optional) — minimum fraction of split ids a candidate must answer for its score to count. Closes a Goodhart hole in ratio objectives: `mae` averages only the items a candidate answered, so answering one easy item posts `mae=0.0` and would win the climb. With the floor set, a low-coverage split is flagged (`low_coverage`), the candidate is disqualified from the hill-climb, and `verify` exits 2. Opt-in: projects that don't set it are unaffected.
@@ -80,7 +81,7 @@ The anomaly and overfit checks respect the objective's direction (`max` for with
 
 Bench rows are informational — the floor gates at verify and in the loop, not in bench ranking.
 
-**The exit code lives in `verify`, not the loop.** `verify` is the gate: it exits `2` when any flag trips, so it's the thing you wire into CI. The `loop` surfaces the same flags in its output and on the escalation report, but it exits `0` regardless; it's a search tool that explores, and explorers are allowed to find candidates that trip a guard. The discipline is: **search with `loop`, gate with `verify`.** Don't gate on the loop's exit code; have CI run `verify` against the candidate the loop produced.
+**The exit code lives in `verify`, not the loop.** `verify` is the gate: it exits `2` on regression, anomaly, overfit, or low coverage, so it's the thing you wire into CI. The `loop` surfaces the same flags in its output and on the escalation report, but it exits `0` regardless; it's a search tool that explores, and explorers are allowed to find candidates that trip a guard. The discipline is: **search with `loop`, gate with `verify`.** Don't gate on the loop's exit code; have CI run `verify` against the candidate the loop produced.
 
 ### Objectives are pluggable, and they own their direction
 
@@ -104,7 +105,7 @@ A good mutation adds a *criterion*, a *field*, or a *tool*, not a louder nag. Th
 
 ### Versioning is first-class, and it blocks
 
-A **regime** is the fingerprint of everything that determines whether two results are comparable: the salt, the objective and its params, the holdout %, the guards, the model, the eval-set contents (tracked by content hash, not path, so swapping which items you bench changes the regime), and the constraints version.
+A **regime** is the fingerprint of everything that determines whether two results are comparable: the salt, objective and params, holdout %, guards and frozen baselines, model, derived truth, evaluated item contents, runner source, active core scoring source/version, bench-set contents, declared environment knobs, and constraints version. Item inputs must therefore be JSON-serializable; unsupported objects fail loudly instead of producing an unstable fingerprint.
 
 Any scoring command computes the current regime and compares it to the last one on disk. If it changed and no ledger entry explains why, the command **exits 2 and refuses to run**:
 
@@ -123,8 +124,8 @@ Cross-regime results are never pooled. The version number points; the ledger exp
 Requires Python 3.12+ (developed on 3.14). One dependency: `pyyaml`.
 
 ```bash
-pip install pyyaml
-python -m pytest          # 52 tests, the full self-test, runs in well under a second
+pip install pyyaml pytest
+python -m pytest          # 133 tests, the full self-test, runs in well under a second
 ```
 
 The repo ships a self-contained **toy project** (`projects/toy/`) with 40 deterministic synthetic exams and a synthetic grader, so the whole pipeline runs with no model and no network:
@@ -133,7 +134,7 @@ The repo ships a self-contained **toy project** (`projects/toy/`) with 40 determ
 # Improve: hill-climb the grading prompt on the train split, then escalate the winner
 python -m ratchet.loop_cli --project projects/toy --escalate
 
-# Defend: score predictions against ground truth (exits 2 on anomaly/overfit)
+# Defend: score predictions against truth and the frozen baseline (exits 2 on any guard)
 python -m ratchet.verify --project projects/toy --predictions <preds.csv> --split gap
 
 # Bench: compare fixed candidates on one frozen set under one regime
@@ -153,11 +154,12 @@ cp -r projects/_template projects/my-eval
 ```
 
 1. **Start minimal.** `base.txt` = role, data, task, definition of done, output shape.
-2. **Ingest your ground truth.** Implement `ingest()`. You export the truth yourself; keep data under `data/` (gitignored). Truth values are strings.
+2. **Ingest your ground truth.** Implement `ingest()`. You export JSON-serializable items and truth yourself; keep data under `data/` (gitignored). Truth values are strings.
 3. **Pick an objective.** `within_tol`, `prf1`, `judge`, or `custom`.
-4. **Run it, read the failure modes.** Ask how each failure generalizes beyond the one case.
-5. **Add mutations that address failures structurally.** A field, a criterion, a tool, not a `NEVER`.
-6. **Escalate.** Grade the winner on the holdout and run the overfit gate. Survives, it's real; fails, it memorized the train split.
+4. **Establish the frozen baseline.** Run `python -m ratchet.loop_cli --project projects/<name> --establish-baseline`, then paste the printed train/holdout objective values into `guards.baseline` and record the regime.
+5. **Run it, read the failure modes.** Ask how each failure generalizes beyond the one case.
+6. **Add mutations that address failures structurally.** A field, a criterion, a tool, not a `NEVER`.
+7. **Escalate.** Grade the winner on the holdout and run the regression/overfit guards. Survives, it's real; fails, it regressed, leaked, or memorized the train split.
 
 ---
 
@@ -165,10 +167,10 @@ cp -r projects/_template projects/my-eval
 
 | Command | What it does |
 |---|---|
-| `python -m ratchet.loop_cli --project <p> [--escalate]` | Hill-climb search on the train split; `--escalate` grades the winner on the holdout and runs the overfit gate. |
-| `python -m ratchet.verify --project <p> --predictions <csv> --split train\|holdout\|gap` | Score predictions against ground truth; exits 2 on anomaly or overfit. |
-| `python -m ratchet.bench_cli --project <p>` | Frozen-param comparison of fixed candidates on the eval set, under one enforced regime. |
-| `python -m ratchet.constraints_cli --project <p> --review \| --consolidate "<why>"` | Constraints hygiene: flag contradictions and one-sided language, or record a consolidation. |
+| `python -m ratchet.loop_cli --project <p> [--escalate\|--establish-baseline]` | Hill-climb on train; establish frozen split baselines; or grade the winner on holdout and report all guards. |
+| `python -m ratchet.verify --project <p> --predictions <csv> --split train\|holdout\|gap` | Score predictions against truth and frozen baselines; exits 2 on regression, anomaly, overfit, or low coverage. |
+| `python -m ratchet.bench_cli --project <p>` | Frozen-param comparison on an explicit eval set, or all ingested ids only when `eval_set: null`. Configured missing, empty, or unknown-id sets fail closed. |
+| `python -m ratchet.constraints_cli --project <p> --review \| --consolidate "<why>"` | Constraints hygiene: flag duplicates and one-sided language, or record a consolidation. |
 | `python -m ratchet.regime_cli --project <p> --why "..." --impact "..."` | Record a regime bump so the next scoring command unblocks. |
 
 ---
@@ -192,7 +194,7 @@ ratchet/              core (do not edit per-project)
 projects/
   _template/            copy this to start a new project
   toy/                  self-contained synthetic e2e example
-tests/                  52 tests, the self-test
+tests/                  133 tests, the self-test
 docs/PORTING.md         the porting guide
 ```
 

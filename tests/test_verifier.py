@@ -14,6 +14,12 @@ def test_split_stable_and_disjoint():
     assert 0.2 < len(holdout) / 200 < 0.4
 
 
+@pytest.mark.parametrize("holdout_pct", [0, 100, -1, 101])
+def test_split_rejects_invalid_holdout_percentage(holdout_pct):
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        split_ids(["a", "b"], "salt", holdout_pct)
+
+
 def test_anomaly_direction_max():
     obj = WithinTol(tol=2.0)
     ids = ["a", "b", "c", "d"]
@@ -27,10 +33,23 @@ def test_overfit_and_anomaly_surfaced_at_top_level():
     truth = {"a": "10", "b": "10", "c": "10", "d": "10"}
     preds = {"a": "10", "b": "10", "c": "20", "d": "20"}  # train 1.0, holdout 0.0
     r = gap_report(preds, truth, ["a", "b"], ["c", "d"], obj,
-                   {"anomaly_at": 0.95, "overfit_gap": 0.10})
+                   {"anomaly_at": 0.95, "overfit_gap": 0.10,
+                    "baseline": {"train": 0.0, "holdout": 0.0}})
     assert r["gap"] == 1.0
     assert r["overfit"] is True
     assert r["anomaly"] is True  # train within_tol 1.0 > 0.95 -> surfaced at top level
+
+
+def test_holdout_only_anomaly_is_surfaced_at_top_level():
+    obj = WithinTol(tol=0.5)
+    truth = {"a": "10", "b": "10", "h": "10"}
+    preds = {"a": "10", "h": "10"}  # train 0.5, holdout 1.0
+    result = gap_report(preds, truth, ["a", "b"], ["h"], obj,
+                        {"anomaly_at": 0.95, "overfit_gap": 0.10,
+                         "baseline": {"train": 0.0, "holdout": 0.0}})
+    assert result["train_anomaly"] is False
+    assert result["holdout_anomaly"] is True
+    assert result["anomaly"] is True
 
 
 def test_load_column_autodetect(tmp_path):
@@ -151,7 +170,8 @@ def test_gap_report_guards_once():
     from ratchet.verifier import Predictions
     from ratchet.regime import RegimeMismatch
     truth = {"a": "10", "b": "10"}
-    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25}
+    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25,
+              "baseline": {"train": 0.0, "holdout": 0.0}}
     stamped = Predictions(truth, regime="r-old")
     with pytest.raises(RegimeMismatch):
         gap_report(stamped, truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
@@ -168,7 +188,8 @@ def test_gap_report_matching_regime_is_silent():
     import warnings
     from ratchet.verifier import Predictions
     truth = {"a": "10", "b": "10"}
-    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25}
+    guards = {"anomaly_at": 0.98, "overfit_gap": 0.25,
+              "baseline": {"train": 0.0, "holdout": 0.0}}
     preds = Predictions(truth, regime="r1")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -199,8 +220,8 @@ def test_score_split_computes_split_coverage():
                     WithinTol(tol=0.5), anomaly_at=0.98)
     assert m["split_coverage"] == 0.5
     assert "low_coverage" not in m                     # knob unset -> no flag key
-    empty = score_split({}, {}, [], WithinTol(tol=0.5), anomaly_at=0.98)
-    assert empty["split_coverage"] == 0.0
+    with pytest.raises(ValueError, match="split must not be empty"):
+        score_split({}, {}, [], WithinTol(tol=0.5), anomaly_at=0.98)
 
 
 def test_score_split_flags_low_coverage_when_floor_set():
@@ -228,11 +249,66 @@ def test_goodhart_one_easy_item_mae_is_flagged():
 def test_gap_report_surfaces_coverage_and_ors_the_flag():
     truth = {"a": "10", "b": "10", "c": "10", "d": "10"}
     preds = {"a": "10", "b": "10", "c": "10"}              # holdout d missing
-    guards = {"anomaly_at": 1.5, "overfit_gap": 0.9, "min_coverage": 0.6}
+    guards = {"anomaly_at": 1.5, "overfit_gap": 0.9, "min_coverage": 0.6,
+              "baseline": {"train": 0.0, "holdout": 0.0}}
     r = gap_report(preds, truth, ["a", "b"], ["c", "d"], WithinTol(tol=0.5), guards)
     assert r["train_coverage"] == 1.0 and r["holdout_coverage"] == 0.5
     assert r["low_coverage"] is True                       # holdout below floor
     no_knob = gap_report(preds, truth, ["a", "b"], ["c", "d"], WithinTol(tol=0.5),
-                         {"anomaly_at": 1.5, "overfit_gap": 0.9})
+                         {"anomaly_at": 1.5, "overfit_gap": 0.9,
+                          "baseline": {"train": 0.0, "holdout": 0.0}})
     assert "low_coverage" not in no_knob
     assert no_knob["train_coverage"] == 1.0                # informational keys always on
+
+
+def test_score_split_flags_direction_aware_regression():
+    max_obj = WithinTol(tol=0.5)
+    max_metrics = score_split(
+        {"a": "10"}, {"a": "10", "b": "10"}, ["a", "b"], max_obj,
+        anomaly_at=1.5, baseline_objective=0.75,
+    )
+    assert max_metrics["objective"] == 0.5
+    assert max_metrics["baseline_objective"] == 0.75
+    assert max_metrics["objective_delta"] == -0.25
+    assert max_metrics["regressed"] is True
+
+    min_obj = WithinTol(tol=0.5, climb="mae")
+    min_metrics = score_split(
+        {"a": "12", "b": "12"}, {"a": "10", "b": "10"}, ["a", "b"], min_obj,
+        anomaly_at=-1.0, baseline_objective=1.0,
+    )
+    assert min_metrics["objective"] == 2.0
+    assert min_metrics["objective_delta"] == -1.0
+    assert min_metrics["regressed"] is True
+
+
+@pytest.mark.parametrize("baseline", [float("nan"), float("inf"), float("-inf"), True])
+def test_score_split_rejects_nonfinite_or_boolean_baseline(baseline):
+    with pytest.raises(ValueError, match="finite number"):
+        score_split({"a": "10"}, {"a": "10"}, ["a"], WithinTol(tol=0.5),
+                    anomaly_at=1.5, baseline_objective=baseline)
+
+
+def test_gap_report_requires_complete_frozen_baselines():
+    truth = {"a": "10", "b": "10"}
+    for guards in (
+        {"anomaly_at": 1.5, "overfit_gap": 0.1},
+        {"anomaly_at": 1.5, "overfit_gap": 0.1, "baseline": {"train": 1.0}},
+    ):
+        with pytest.raises(ValueError, match="missing frozen baseline"):
+            gap_report(truth, truth, ["a"], ["b"], WithinTol(tol=0.5), guards)
+
+
+def test_gap_report_surfaces_regression_from_either_split():
+    truth = {"a": "10", "b": "10", "c": "10", "d": "10"}
+    preds = {"a": "10", "b": "10", "c": "10"}  # holdout d missing
+    guards = {
+        "anomaly_at": 1.5,
+        "overfit_gap": 0.9,
+        "baseline": {"train": 1.0, "holdout": 1.0},
+    }
+    result = gap_report(preds, truth, ["a", "b"], ["c", "d"],
+                        WithinTol(tol=0.5), guards)
+    assert result["train"]["regressed"] is False
+    assert result["holdout"]["regressed"] is True
+    assert result["regressed"] is True

@@ -2,6 +2,8 @@ import subprocess, sys
 import shutil
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 TOY = ROOT / "projects" / "toy"
 
@@ -142,7 +144,7 @@ def test_verify_exits_2_on_low_coverage(tmp_path):
     preds = tmp_path / "one.csv"
     preds.write_text("anon_id,score\ntoy001,10\n")
     r = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-              "--split", "train"])
+              "--split", "train", "--allow-unstamped"])
     assert r.returncode == 2
     assert '"low_coverage": true' in r.stdout
 
@@ -158,7 +160,7 @@ def test_verify_exits_2_when_candidate_regresses_below_frozen_baseline(tmp_path)
     preds.write_text("anon_id,score\n" + "".join(f"toy{i:03d},0\n" for i in range(40)))
 
     result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-                   "--split", "gap"])
+                   "--split", "gap", "--allow-unstamped"])
 
     assert result.returncode == 2
     assert '"regressed": true' in result.stdout
@@ -174,7 +176,54 @@ def test_verify_fails_closed_when_required_baseline_is_missing(tmp_path):
     preds.write_text("anon_id,score\n" + "".join(f"toy{i:03d},10\n" for i in range(40)))
 
     result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-                   "--split", "train"])
+                   "--split", "train", "--allow-unstamped"])
 
     assert result.returncode == 2
     assert "missing frozen baseline" in result.stderr
+
+
+def _write_toy_predictions(path, *, regime=None):
+    stamp = f"# ratchet-regime: {regime}\n" if regime is not None else ""
+    path.write_text(stamp + "anon_id,score\n" +
+                    "".join(f"toy{i:03d},10\n" for i in range(40)))
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_rejects_unstamped_predictions_by_default(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"unstamped-{split}.csv"
+    _write_toy_predictions(preds)
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split])
+
+    assert result.returncode == 2
+    assert "no regime stamp" in result.stderr
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_allow_unstamped_warns_once_and_proceeds(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"unstamped-{split}.csv"
+    _write_toy_predictions(preds)
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split, "--allow-unstamped"])
+
+    assert result.returncode == 0
+    assert result.stderr.count("no regime stamp") == 1
+    assert '"objective"' in result.stdout
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_allow_unstamped_never_allows_mismatched_stamp(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"mismatched-{split}.csv"
+    _write_toy_predictions(preds, regime="wrong-regime")
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split, "--allow-unstamped"])
+
+    assert result.returncode == 2
+    assert "refusing to score across regimes" in result.stderr
+    assert "no regime stamp" not in result.stderr

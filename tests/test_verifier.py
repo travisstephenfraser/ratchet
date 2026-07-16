@@ -1,5 +1,13 @@
 import pytest
-from ratchet.verifier import Predictions, split_ids, score_split, gap_report, load_column
+from ratchet.regime import RegimeMismatch
+from ratchet.verifier import (
+    Predictions,
+    check_expected_regime,
+    gap_report,
+    load_column,
+    score_split,
+    split_ids,
+)
 from ratchet.objectives.within_tol import WithinTol
 
 
@@ -168,7 +176,7 @@ def test_verify_cli_reports_unscorable_candidate_and_exits_two(monkeypatch, caps
     assert "unscorable candidate" in capsys.readouterr().err
 
 
-def _patch_verify_scoring_path(monkeypatch, tmp_path, split, preds):
+def _patch_verify_scoring_path(monkeypatch, tmp_path, split, preds, *, allow_unstamped=False):
     import sys
     import ratchet.verify as verify
 
@@ -185,10 +193,13 @@ def _patch_verify_scoring_path(monkeypatch, tmp_path, split, preds):
         "objective": WithinTol(tol=0.5),
         "ingest": staticmethod(lambda: ({"a": {}, "b": {}}, {"a": "10", "b": "10"})),
     })()
-    monkeypatch.setattr(sys, "argv", [
+    argv = [
         "ratchet-verify", "--project", str(tmp_path),
         "--predictions", str(tmp_path / "preds.csv"), "--split", split,
-    ])
+    ]
+    if allow_unstamped:
+        argv.append("--allow-unstamped")
+    monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(verify, "load_project", lambda _path: project)
     monkeypatch.setattr(verify, "current_version", lambda _path: "c1")
     monkeypatch.setattr(verify, "enforce_regime", lambda *args: "r1")
@@ -250,7 +261,8 @@ def test_verify_warns_once_for_unstamped_predictions(monkeypatch, capsys, tmp_pa
     from ratchet.verifier import Predictions
 
     verify = _patch_verify_scoring_path(
-        monkeypatch, tmp_path, "train", Predictions({"a": "10"}))
+        monkeypatch, tmp_path, "train", Predictions({"a": "10"}),
+        allow_unstamped=True)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -332,11 +344,18 @@ def test_score_split_matching_regime_is_silent():
     assert m["objective"] == 1.0 and not caught
 
 
-def test_score_split_warns_on_unstamped_when_expected_given():
+def test_expected_regime_matrix():
+    matching = Predictions({"a": "1"}, regime="r1")
+    wrong = Predictions({"a": "1"}, regime="r0")
+    plain = {"a": "1"}
+    check_expected_regime(matching, "r1")
+    with pytest.raises(RegimeMismatch):
+        check_expected_regime(wrong, "r1", allow_unstamped=True)
+    with pytest.raises(RegimeMismatch, match="no regime stamp"):
+        check_expected_regime(plain, "r1")
     with pytest.warns(UserWarning, match="no regime stamp"):
-        m = score_split({"a": "10"}, {"a": "10"}, ["a"], WithinTol(tol=0.5),
-                        anomaly_at=0.98, expected_regime="r-new")
-    assert m["objective"] == 1.0  # allowed-but-loud, mirrors the CLI legacy posture
+        check_expected_regime(plain, "r1", allow_unstamped=True)
+    check_expected_regime(plain, None)
 
 
 def test_score_split_explicit_none_never_checks():
@@ -367,11 +386,15 @@ def test_gap_report_guards_once():
     with pytest.raises(RegimeMismatch):
         gap_report(stamped, truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
                    expected_regime="r-new")
-    # unstamped preds warn EXACTLY once (top of gap_report, not per internal score_split)
+    with pytest.raises(RegimeMismatch, match="no regime stamp"):
+        gap_report(dict(truth), truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
+                   expected_regime="r-new")
+    # Explicitly allowed unstamped preds warn EXACTLY once (top of gap_report, not per
+    # internal score_split).
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         gap_report(dict(truth), truth, ["a"], ["b"], WithinTol(tol=0.5), guards,
-                   expected_regime="r-new")
+                   expected_regime="r-new", allow_unstamped=True)
     assert len([w for w in caught if "no regime stamp" in str(w.message)]) == 1
 
 

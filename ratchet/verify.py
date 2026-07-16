@@ -15,6 +15,7 @@ def main():
     ap.add_argument("--project", required=True)
     ap.add_argument("--predictions", required=True)
     ap.add_argument("--split", choices=["train", "holdout", "gap"], default="train")
+    ap.add_argument("--allow-unstamped", action="store_true")
     args = ap.parse_args()
     proj = load_project(Path(args.project))
     cv = current_version(Path(args.project) / "constraints.jsonl")
@@ -37,16 +38,19 @@ def main():
         if args.split == "train":
             result = score_split(preds, truth, train, proj.objective, guards["anomaly_at"],
                                  expected_regime=current,
+                                 allow_unstamped=args.allow_unstamped,
                                  min_coverage=guards.get("min_coverage"),
                                  baseline_objective=baseline.get("train"))
         elif args.split == "holdout":
             result = score_split(preds, truth, holdout, proj.objective, guards["anomaly_at"],
                                  expected_regime=current,
+                                 allow_unstamped=args.allow_unstamped,
                                  min_coverage=guards.get("min_coverage"),
                                  baseline_objective=baseline.get("holdout"))
         else:
             result = gap_report(preds, truth, train, holdout, proj.objective, guards,
-                                expected_regime=current)
+                                expected_regime=current,
+                                allow_unstamped=args.allow_unstamped)
     except RegimeMismatch as exc:
         print(f"refusing to score across regimes: {exc}", file=sys.stderr)
         sys.exit(2)

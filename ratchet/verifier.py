@@ -78,12 +78,14 @@ UNSTAMPED_PREDS_WARNING = (
 
 def check_expected_regime(preds, expected_regime, *, allow_unstamped=False):
     """In-process comparability guard. Raises RegimeMismatch when the preds' stamp and
-    the expectation differ; warns (allowed-but-loud, the CLI legacy posture) when the
-    preds are unstamped; silent when the caller passes no expectation."""
+    the expectation differ or is missing; an explicit compatibility override makes a
+    missing stamp allowed-but-loud. Silent when the caller passes no expectation."""
     if expected_regime is None:
         return
     stamped = getattr(preds, "regime", None)
     if stamped is None:
+        if not allow_unstamped:
+            raise RegimeMismatch("predictions carry no regime stamp")
         warnings.warn(UNSTAMPED_PREDS_WARNING.format(expected=expected_regime), stacklevel=3)
         return
     guard_compare(stamped, expected_regime)  # raises RegimeMismatch on mismatch

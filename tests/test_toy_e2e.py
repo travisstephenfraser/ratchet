@@ -26,6 +26,6 @@ def test_toy_climbs_persists_then_survives_gate(tmp_path):
     assert (tmp_path / "candidates" / f"{best['cid']}.metrics.json").exists()
 
     gate = escalate(proj, best, train, holdout, items, truth,
-                    log_path=tmp_path / "holdout_access.log", policy=policy)
+                    log_path=tmp_path / "holdout_access.log", policy=policy, regime=regime)
     assert gate["overfit"] is False
     assert gate["holdout"]["objective"] == 1.0

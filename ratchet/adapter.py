@@ -11,6 +11,10 @@ class Unparseable(Exception):
     miss. Keeping this the single swallowed failure IS the fail-loud contract."""
 
 
+class UnscorableCandidate(ValueError):
+    """An objective raises this when a candidate has no defined scalar score."""
+
+
 class Runner(Protocol):
     def run(self, candidate: str, item: Any, policy: str = "") -> Any:
         """Apply ONE candidate to ONE item; return a prediction.

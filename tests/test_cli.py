@@ -2,6 +2,8 @@ import subprocess, sys
 import shutil
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 TOY = ROOT / "projects" / "toy"
 
@@ -61,9 +63,94 @@ def test_loop_cli_establishes_frozen_baseline_values(tmp_path):
     assert (proj / "holdout_access.log").exists()
 
 
+def test_loop_cli_baseline_establishment_uses_one_provisional_regime(
+        tmp_path, monkeypatch, capsys):
+    import ratchet.loop_cli as loop_cli
+    from ratchet.verifier import Predictions
+
+    config = type("Config", (), {
+        "salt": "salt", "holdout_pct": 50,
+        "guards": {"anomaly_at": 1.5},
+    })()
+    project = type("Project", (), {
+        "config": config,
+        "base_candidate": "base",
+        "objective": object(),
+        "ingest": staticmethod(lambda: ({"a": {}, "b": {}}, {"a": "10", "b": "10"})),
+    })()
+    generated, scored = [], []
+
+    def run(project, candidate, ids, items, policy="", *, max_miss_rate=None, regime=None):
+        generated.append((tuple(ids), regime))
+        return Predictions({item_id: "10" for item_id in ids}, regime=regime)
+
+    def score(preds, truth, ids, objective, anomaly_at, *, expected_regime, **kwargs):
+        scored.append((tuple(ids), preds.regime, expected_regime))
+        return {"objective": 1.0, "split_coverage": 1.0, "anomaly": False}
+
+    monkeypatch.setattr(sys, "argv", [
+        "ratchet-loop", "--project", str(tmp_path), "--establish-baseline",
+    ])
+    monkeypatch.setattr(loop_cli, "load_project", lambda _path: project)
+    monkeypatch.setattr(loop_cli, "load_constraints", lambda _path: "policy")
+    monkeypatch.setattr(loop_cli, "current_version", lambda _path: "c1")
+    monkeypatch.setattr(loop_cli, "split_ids", lambda *args: (["a"], ["b"]))
+    monkeypatch.setattr(loop_cli, "regime_payload", lambda config, cv, truth, items: "payload")
+    monkeypatch.setattr(loop_cli, "regime_hash", lambda payload: "provisional-r1")
+    monkeypatch.setattr(loop_cli, "run_candidate_over", run)
+    monkeypatch.setattr(loop_cli, "score_split", score)
+    monkeypatch.setattr(loop_cli, "log_holdout_access", lambda *args: None)
+
+    loop_cli.main()
+
+    assert generated == [(("a",), "provisional-r1"), (("b",), "provisional-r1")]
+    assert scored == [(("a",), "provisional-r1", "provisional-r1"),
+                      (("b",), "provisional-r1", "provisional-r1")]
+    assert "baseline:" in capsys.readouterr().out
+
+
 def test_bench_cli_runs(tmp_path):
     r = _run(["ratchet.bench_cli", "--project", str(_copy_toy(tmp_path))])
     assert r.returncode == 0 and "regime" in r.stdout.lower()
+
+
+def test_bench_cli_rejects_before_regime_or_result_write(tmp_path):
+    proj = _copy_toy(tmp_path)
+    path = proj / "config.yaml"
+    path.write_text(path.read_text().replace(
+        "candidates: [strict, lenient]", "candidates: []"))
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode == 2
+    assert "bench input error" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (proj / ".regime").exists()
+    assert not (proj / "regime_log.jsonl").exists()
+    assert not list(proj.glob("bench_*.json"))
+
+
+def test_bench_cli_does_not_launder_runner_programming_error(tmp_path):
+    proj = _copy_toy(tmp_path)
+    (proj / "runner.py").write_text(
+        "class Runner:\n"
+        "    def run(self, candidate, item, policy=''):\n"
+        "        raise ValueError('programmer bug')\n")
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode != 0
+    assert "Traceback" in result.stderr
+    assert "programmer bug" in result.stderr
+
+
+def test_bench_cli_does_not_launder_runner_bench_input_error(tmp_path):
+    proj = _copy_toy(tmp_path)
+    (proj / "runner.py").write_text(
+        "from ratchet.bench import BenchInputError\n"
+        "class Runner:\n"
+        "    def run(self, candidate, item, policy=''):\n"
+        "        raise BenchInputError('runner bug')\n")
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode != 0
+    assert "Traceback" in result.stderr
+    assert "runner bug" in result.stderr
 
 
 # The ledger rationale is the audit trail for a sanctioned regime bump; a blank
@@ -96,7 +183,7 @@ def test_verify_exits_2_on_low_coverage(tmp_path):
     preds = tmp_path / "one.csv"
     preds.write_text("anon_id,score\ntoy001,10\n")
     r = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-              "--split", "train"])
+              "--split", "train", "--allow-unstamped"])
     assert r.returncode == 2
     assert '"low_coverage": true' in r.stdout
 
@@ -112,7 +199,7 @@ def test_verify_exits_2_when_candidate_regresses_below_frozen_baseline(tmp_path)
     preds.write_text("anon_id,score\n" + "".join(f"toy{i:03d},0\n" for i in range(40)))
 
     result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-                   "--split", "gap"])
+                   "--split", "gap", "--allow-unstamped"])
 
     assert result.returncode == 2
     assert '"regressed": true' in result.stdout
@@ -128,7 +215,54 @@ def test_verify_fails_closed_when_required_baseline_is_missing(tmp_path):
     preds.write_text("anon_id,score\n" + "".join(f"toy{i:03d},10\n" for i in range(40)))
 
     result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
-                   "--split", "train"])
+                   "--split", "train", "--allow-unstamped"])
 
     assert result.returncode == 2
     assert "missing frozen baseline" in result.stderr
+
+
+def _write_toy_predictions(path, *, regime=None):
+    stamp = f"# ratchet-regime: {regime}\n" if regime is not None else ""
+    path.write_text(stamp + "anon_id,score\n" +
+                    "".join(f"toy{i:03d},10\n" for i in range(40)))
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_rejects_unstamped_predictions_by_default(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"unstamped-{split}.csv"
+    _write_toy_predictions(preds)
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split])
+
+    assert result.returncode == 2
+    assert "no regime stamp" in result.stderr
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_allow_unstamped_warns_once_and_proceeds(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"unstamped-{split}.csv"
+    _write_toy_predictions(preds)
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split, "--allow-unstamped"])
+
+    assert result.returncode == 0
+    assert result.stderr.count("no regime stamp") == 1
+    assert '"objective"' in result.stdout
+
+
+@pytest.mark.parametrize("split", ["train", "holdout", "gap"])
+def test_verify_allow_unstamped_never_allows_mismatched_stamp(split, tmp_path):
+    proj = _copy_toy(tmp_path)
+    preds = tmp_path / f"mismatched-{split}.csv"
+    _write_toy_predictions(preds, regime="wrong-regime")
+
+    result = _run(["ratchet.verify", "--project", str(proj), "--predictions", str(preds),
+                   "--split", split, "--allow-unstamped"])
+
+    assert result.returncode == 2
+    assert "refusing to score across regimes" in result.stderr
+    assert "no regime stamp" not in result.stderr

@@ -1,4 +1,12 @@
-from ratchet.bench import bench, load_eval_ids
+import pytest
+
+from ratchet.bench import (
+    BenchInputError,
+    bench,
+    load_eval_ids,
+    normalize_candidates,
+    normalize_eval_ids,
+)
 from ratchet.objectives.within_tol import WithinTol
 
 
@@ -28,6 +36,44 @@ def test_bench_ranks_same_regime(tmp_path):
     assert rows[0]["regime"] == rows[1]["regime"]
 
 
+@pytest.mark.parametrize(
+    "value", [None, "candidate", b"candidate", {"candidate": 1}, [], iter(())]
+)
+def test_normalize_candidates_rejects_invalid_or_empty_inputs(value):
+    with pytest.raises(BenchInputError):
+        normalize_candidates(value)
+
+
+def test_normalize_candidates_materializes_generator_once():
+    assert normalize_candidates(x for x in ["strict", "lenient"]) == ["strict", "lenient"]
+
+
+@pytest.mark.parametrize("value", [[""], [1], ["ok", " "]])
+def test_normalize_candidates_rejects_invalid_members(value):
+    with pytest.raises(BenchInputError, match="nonblank strings"):
+        normalize_candidates(value)
+
+
+@pytest.mark.parametrize("ids", [["a", "a"], iter(["a", "a"])])
+def test_normalize_eval_ids_rejects_duplicates(ids):
+    with pytest.raises(BenchInputError, match="duplicate ids"):
+        normalize_eval_ids(ids, {"a": "1"})
+
+
+@pytest.mark.parametrize(
+    "value,truth,match",
+    [
+        ([""], {"": "1"}, "nonblank"),
+        ([1], {1: "1"}, "nonblank"),
+        (["missing"], {"a": "1"}, "unknown"),
+        ([], {}, "empty"),
+    ],
+)
+def test_normalize_eval_ids_rejects_invalid_sets(value, truth, match):
+    with pytest.raises(BenchInputError, match=match):
+        normalize_eval_ids(value, truth)
+
+
 def test_bench_regime_includes_truth_fingerprint(tmp_path):
     # The bench regime must be the same truth-inclusive hash enforce_regime baselines,
     # so a sanctioned relabel changes it instead of silently pooling bench rows.
@@ -42,6 +88,22 @@ def test_bench_regime_includes_truth_fingerprint(tmp_path):
     assert relabeled[0]["regime"] != rows[0]["regime"]
 
 
+def test_bench_forwards_generated_regime_to_scoring(tmp_path, monkeypatch):
+    import ratchet.bench as bench_module
+
+    captured = {}
+
+    def score(preds, *args, expected_regime, **kwargs):
+        captured.update(stamp=preds.regime, expected=expected_regime)
+        return {"objective": 1.0}
+
+    monkeypatch.setattr(bench_module, "score_split", score)
+
+    rows = bench(_Project(tmp_path), ["good"], ["a"], {"a": {}}, {"a": "10"}, "c1")
+
+    assert captured == {"stamp": rows[0]["regime"], "expected": rows[0]["regime"]}
+
+
 def test_load_eval_ids_reads_frozen_set(tmp_path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "eval_set.txt").write_text("a\nc\n")
@@ -49,10 +111,39 @@ def test_load_eval_ids_reads_frozen_set(tmp_path):
     assert load_eval_ids(proj, {"a": "1", "b": "1", "c": "1"}) == ["a", "c"]
 
 
+def test_load_eval_ids_rejects_duplicate_configured_ids(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "eval_set.txt").write_text("a\na\n")
+    proj = _Project(tmp_path)
+
+    with pytest.raises(BenchInputError, match="duplicate ids"):
+        load_eval_ids(proj, {"a": "1"})
+
+
+def test_bench_rejects_duplicate_ids_before_regime_or_result_write(tmp_path, monkeypatch):
+    import ratchet.bench as bench_module
+
+    def unexpected_call(*args, **kwargs):
+        pytest.fail("invalid bench input reached a stateful operation")
+
+    monkeypatch.setattr(bench_module, "regime_hash", unexpected_call)
+    monkeypatch.setattr(bench_module.results, "write_bench", unexpected_call)
+
+    with pytest.raises(BenchInputError, match="duplicate ids"):
+        bench(
+            _Project(tmp_path),
+            ["good"],
+            ["a", "a"],
+            {"a": {}},
+            {"a": "10"},
+            constraints_version="c1",
+            out_dir=tmp_path,
+        )
+
+
 def test_load_eval_ids_fails_when_configured_set_is_missing(tmp_path):
     proj = _Project(tmp_path)  # no eval_set file
-    import pytest
-    with pytest.raises(FileNotFoundError, match="configured bench eval set"):
+    with pytest.raises(BenchInputError, match="configured bench eval set"):
         load_eval_ids(proj, {"a": "1", "b": "1"})
 
 
@@ -96,3 +187,20 @@ def test_bench_raises_when_a_candidate_produces_no_predictions(tmp_path):
     proj.runner = _R()
     with pytest.raises(ValueError, match="0/2 .* produced predictions"):
         bench(proj, ["cand"], ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"}, "c1")
+
+
+def test_bench_surfaces_unscorable_mae_for_zero_predictions(tmp_path):
+    from ratchet.adapter import Unparseable, UnscorableCandidate
+
+    proj = _Project(tmp_path)
+    proj.objective = WithinTol(tol=0.5, climb="mae")
+
+    class _R:
+        def run(self, candidate, item, policy=""):
+            raise Unparseable("garbage")
+
+    proj.runner = _R()
+    with pytest.raises(UnscorableCandidate, match="zero predictions for MAE split"):
+        bench(proj, ["cand"], ["a", "b"], {"a": {}, "b": {}},
+              {"a": "10", "b": "10"}, "c1", out_dir=tmp_path)
+    assert not list(tmp_path.glob("bench_*.json"))

@@ -5,9 +5,15 @@ the objective (name+params), so it is not hashed separately."""
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
+import yaml
+
 from . import __version__
+
+
+CORE_SENTINELS = {"__init__.py", "regime.py", "verifier.py", "loop.py", "bench.py"}
 
 
 class RegimeMismatch(Exception):
@@ -51,25 +57,35 @@ def _items_fingerprint(items) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-def _core_source_paths(config):
-    core = Path(__file__).parent
-    paths = [core / "verifier.py", core / "objectives" / "__init__.py"]
-    active = {
-        "within_tol": "within_tol.py",
-        "prf1": "prf1.py",
-        "judge": "judge.py",
-    }.get(config.objective.name)
-    if active:
-        paths.append(core / "objectives" / active)
-    return paths
+def _core_root():
+    return Path(__file__).parent
 
 
-def _core_fingerprint(config) -> str:
-    h = hashlib.sha256(__version__.encode())
-    for path in _core_source_paths(config):
-        h.update(path.name.encode())
-        h.update(path.read_bytes())
-    return h.hexdigest()[:12]
+def _core_source_paths():
+    root = _core_root()
+    return sorted(root.rglob("*.py"), key=lambda p: p.relative_to(root).as_posix())
+
+
+def _framed_update(digest, data):
+    digest.update(len(data).to_bytes(8, "big"))
+    digest.update(data)
+
+
+def _core_fingerprint() -> str:
+    root = _core_root()
+    paths = _core_source_paths()
+    names = {p.relative_to(root).as_posix() for p in paths}
+    missing = CORE_SENTINELS - names
+    if missing:
+        raise RuntimeError(
+            "Ratchet requires a sourceful package; missing core Python sources: "
+            f"{sorted(missing)}")
+    digest = hashlib.sha256()
+    _framed_update(digest, __version__.encode())
+    for path in paths:
+        _framed_update(digest, path.relative_to(root).as_posix().encode())
+        _framed_update(digest, path.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def _source_fingerprint(config) -> str:
@@ -98,7 +114,14 @@ def regime_payload(config, constraints_version, truth=None, items=None) -> dict:
         "model": config.model,
         "eval_set": _eval_set_fingerprint(config),
         "logic": _source_fingerprint(config),
-        "scoring_core": {"version": __version__, "logic": _core_fingerprint(config)},
+        "scoring_core": {
+            "version": __version__,
+            "logic": _core_fingerprint(),
+            "runtime": {
+                "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "pyyaml": yaml.__version__,
+            },
+        },
     }
     # Content of the derived ground truth. Omitted when truth is not supplied (unit tests),
     # but every real entry point passes it, so a relabel or an item-set change bumps the hash.

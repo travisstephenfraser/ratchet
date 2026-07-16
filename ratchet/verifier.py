@@ -9,6 +9,7 @@ import warnings
 from datetime import datetime, timezone
 
 from .regime import guard_compare, RegimeMismatch
+from .validation import finite_number, mapping, nonblank, rate, whole_number
 
 
 PREDS_REGIME_PREFIX = "# ratchet-regime: "
@@ -32,29 +33,6 @@ def read_preds_regime(path):
     return None
 
 
-LEGACY_PREDS_WARNING = (
-    "WARNING: predictions file {path} carries no regime stamp (legacy or externally "
-    "generated). Scoring it anyway, but ratchet CANNOT confirm these predictions were "
-    "produced under the current regime.\n"
-    "  RISK: if they were generated under a different model, prompt, eval set, or label "
-    "set, this score is comparing across incomparable rules, a silently wrong number that "
-    "can PASS a gate it should fail, or FAIL one it should pass.\n"
-    "  FIX: regenerate the predictions with the current project prediction generator so "
-    "the file is stamped, "
-    "or re-run generation and scoring under one regime."
-)
-
-
-def preds_regime_gate(stamped, current):
-    """Compare a preds file's stamped regime against the current one. Returns the legacy
-    warning string when the file is unstamped, None when the stamp matches, and raises
-    RegimeMismatch when they differ (the caller exits non-zero)."""
-    if stamped is None:
-        return LEGACY_PREDS_WARNING
-    guard_compare(stamped, current)  # raises RegimeMismatch on mismatch
-    return None
-
-
 class Predictions(dict):
     """Prediction map carrying the regime it was produced under (None = unstamped).
     A dict subclass so every existing consumer and plain-dict caller keeps working;
@@ -75,14 +53,17 @@ UNSTAMPED_PREDS_WARNING = (
 )
 
 
-def check_expected_regime(preds, expected_regime):
+def check_expected_regime(preds, expected_regime, *, allow_unstamped=False):
     """In-process comparability guard. Raises RegimeMismatch when the preds' stamp and
-    the expectation differ; warns (allowed-but-loud, the CLI legacy posture) when the
-    preds are unstamped; silent when the caller passes no expectation."""
+    the expectation differ or is missing; an explicit compatibility override makes a
+    missing stamp allowed-but-loud. Silent when the caller passes no expectation."""
     if expected_regime is None:
         return
+    expected_regime = nonblank(expected_regime, "expected_regime")
     stamped = getattr(preds, "regime", None)
     if stamped is None:
+        if not allow_unstamped:
+            raise RegimeMismatch("predictions carry no regime stamp")
         warnings.warn(UNSTAMPED_PREDS_WARNING.format(expected=expected_regime), stacklevel=3)
         return
     guard_compare(stamped, expected_regime)  # raises RegimeMismatch on mismatch
@@ -102,8 +83,7 @@ def load_column(path, value_field=None):
 
 
 def split_ids(ids, salt, holdout_pct):
-    if not 0 < holdout_pct < 100:
-        raise ValueError(f"holdout_pct must be between 0 and 100 (exclusive), got {holdout_pct}")
+    holdout_pct = whole_number(holdout_pct, "holdout_pct", minimum=1, maximum=99)
     train, holdout = [], []
     for anon in sorted(ids):
         bucket = int(hashlib.sha256(f"{salt}:{anon}".encode()).hexdigest()[:8], 16) % 100
@@ -133,55 +113,124 @@ def validate_baselines(guards, splits=("train", "holdout")):
     return {split: _finite_baseline(baseline[split]) for split in splits}
 
 
-def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None,
-                min_coverage=None, baseline_objective=None):
+def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime,
+                allow_unstamped=False, min_coverage=None, baseline_objective=None):
     if not ids:
         raise ValueError("split must not be empty; add more labeled items or change the split salt")
-    check_expected_regime(preds, expected_regime)
+    check_expected_regime(preds, expected_regime, allow_unstamped=allow_unstamped)
     if objective.direction not in ("max", "min"):
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
+    anomaly_at = finite_number(anomaly_at, "guards.anomaly_at")
+    if min_coverage is not None:
+        min_coverage = rate(min_coverage, "guards.min_coverage")
     # hand the objective only the labels for the ids being scored, never the whole vault
-    scoped_truth = {i: truth[i] for i in ids if i in truth}
-    base = objective.score(preds, scoped_truth, ids)
-    val = base["objective"]
-    anomaly = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
+    scoped_truth = {item_id: truth[item_id] for item_id in ids if item_id in truth}
+    base = mapping(objective.score(preds, scoped_truth, ids), "objective result")
+    if "objective" not in base:
+        raise ValueError("objective result requires an 'objective' key")
+    value = finite_number(base["objective"], "objective result")
+    base = {**base, "objective": value}
+    anomaly = value > anomaly_at if objective.direction == "max" else value < anomaly_at
     # Coverage is computed by the CORE from (preds, ids) — never read from the
     # objective's report — so a coverage-blind objective (mae) cannot Goodhart it.
-    coverage = sum(1 for i in ids if i in preds) / len(ids) if ids else 0.0
+    coverage = sum(1 for item_id in ids if item_id in preds) / len(ids)
     out = {**base, "anomaly": anomaly, "split_coverage": coverage}
     if min_coverage is not None:
         out["low_coverage"] = coverage < min_coverage
     if baseline_objective is not None:
-        baseline_objective = _finite_baseline(baseline_objective)
-        delta = (val - baseline_objective) if objective.direction == "max" \
-            else (baseline_objective - val)
-        out.update({"baseline_objective": baseline_objective,
-                    "objective_delta": delta, "regressed": delta < -1e-9})
+        baseline = finite_number(baseline_objective, "frozen baseline objective")
+        delta = value - baseline if objective.direction == "max" else baseline - value
+        delta = finite_number(delta, "objective delta")
+        out.update(baseline_objective=baseline, objective_delta=delta,
+                   regressed=delta < -1e-9)
     return out
 
 
-def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime=None):
-    overlap = set(train) & set(holdout)
-    if overlap:
-        raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
-    check_expected_regime(preds, expected_regime)
-    min_cov = guards.get("min_coverage")
-    baselines = validate_baselines(guards)
-    tr = score_split(preds, truth, train, objective, guards["anomaly_at"],
-                     min_coverage=min_cov, baseline_objective=baselines.get("train"))
-    ho = score_split(preds, truth, holdout, objective, guards["anomaly_at"],
-                     min_coverage=min_cov, baseline_objective=baselines.get("holdout"))
-    gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \
-        else (ho["objective"] - tr["objective"])
-    out = {"train": tr, "holdout": ho, "gap": gap,
-           "overfit": gap > guards["overfit_gap"],
-           "anomaly": tr["anomaly"] or ho["anomaly"],
-           "train_anomaly": tr["anomaly"], "holdout_anomaly": ho["anomaly"],
-           "train_coverage": tr["split_coverage"], "holdout_coverage": ho["split_coverage"]}
-    if min_cov is not None:
-        out["low_coverage"] = tr["low_coverage"] or ho["low_coverage"]
-    out["regressed"] = tr["regressed"] or ho["regressed"]
-    return out
+class _GapReportBuilder:
+    """Private two-phase scorer used when holdout access must follow train scoring."""
+
+    def __init__(self, truth, train, holdout, objective, guards, *, expected_regime,
+                 allow_unstamped=False):
+        self.expected_regime = nonblank(expected_regime, "expected_regime")
+        self.allow_unstamped = allow_unstamped
+        self.truth = truth
+        self.train = train
+        self.holdout = holdout
+        self.objective = objective
+        self.guards = mapping(guards, "guards")
+        overlap = set(train) & set(holdout)
+        if overlap:
+            raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
+        self.overfit_gap = finite_number(
+            self.guards.get("overfit_gap"), "guards.overfit_gap")
+        if self.overfit_gap < 0:
+            raise ValueError("guards.overfit_gap must be >= 0")
+        self.min_coverage = self.guards.get("min_coverage")
+        self.baselines = validate_baselines(self.guards)
+        self._checked_predictions = set()
+        self._train_values = None
+        self._train_result = None
+
+    def _check_predictions(self, preds):
+        identity = id(preds)
+        if identity not in self._checked_predictions:
+            check_expected_regime(
+                preds, self.expected_regime, allow_unstamped=self.allow_unstamped)
+            self._checked_predictions.add(identity)
+
+    def score_train(self, preds):
+        if self._train_result is not None:
+            raise RuntimeError("train split has already been scored")
+        self._check_predictions(preds)
+        self._train_values = {
+            item_id: preds[item_id] for item_id in self.train if item_id in preds
+        }
+        self._train_result = score_split(
+            preds, self.truth, self.train, self.objective, self.guards["anomaly_at"],
+            expected_regime=None, min_coverage=self.min_coverage,
+            baseline_objective=self.baselines["train"])
+
+    def finish(self, preds):
+        if self._train_result is None:
+            raise RuntimeError("train split must be scored before the gap report is finished")
+        self._check_predictions(preds)
+        train_values = {
+            item_id: preds[item_id] for item_id in self.train if item_id in preds
+        }
+        if train_values != self._train_values:
+            raise ValueError("train predictions changed after train scoring")
+        holdout_result = score_split(
+            preds, self.truth, self.holdout, self.objective, self.guards["anomaly_at"],
+            expected_regime=None, min_coverage=self.min_coverage,
+            baseline_objective=self.baselines["holdout"])
+        train_result = self._train_result
+        gap = (train_result["objective"] - holdout_result["objective"]
+               if self.objective.direction == "max"
+               else holdout_result["objective"] - train_result["objective"])
+        gap = finite_number(gap, "observed train/holdout gap")
+        out = {
+            "train": train_result, "holdout": holdout_result, "gap": gap,
+            "overfit": gap > self.overfit_gap,
+            "anomaly": train_result["anomaly"] or holdout_result["anomaly"],
+            "train_anomaly": train_result["anomaly"],
+            "holdout_anomaly": holdout_result["anomaly"],
+            "train_coverage": train_result["split_coverage"],
+            "holdout_coverage": holdout_result["split_coverage"],
+            "regressed": train_result["regressed"] or holdout_result["regressed"],
+        }
+        if self.min_coverage is not None:
+            out["low_coverage"] = (
+                train_result["low_coverage"] or holdout_result["low_coverage"])
+        return out
+
+
+def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime,
+               allow_unstamped=False):
+    builder = _GapReportBuilder(
+        truth, train, holdout, objective, guards, expected_regime=expected_regime,
+        allow_unstamped=allow_unstamped)
+    builder.score_train(preds)
+    return builder.finish(preds)
 
 
 def log_holdout_access(log_path, caller, predictions_path):

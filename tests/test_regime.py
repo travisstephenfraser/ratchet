@@ -109,12 +109,82 @@ def test_core_scoring_fingerprint_changes_with_active_source(tmp_path, monkeypat
     import ratchet.regime as regime
     source = tmp_path / "active_objective.py"
     source.write_text("SCORE = 1\n")
-    monkeypatch.setattr(regime, "_core_source_paths", lambda config: [source])
+    monkeypatch.setattr(regime, "_core_root", lambda: tmp_path)
+    monkeypatch.setattr(regime, "_core_source_paths", lambda: [source])
+    monkeypatch.setattr(regime, "CORE_SENTINELS", set())
     cfg = _cfg(tmp_path)
     a = regime_hash(regime_payload(cfg, "c1"))
     source.write_text("SCORE = 2\n")
     b = regime_hash(regime_payload(cfg, "c1"))
     assert a != b
+
+
+def test_core_paths_equal_every_source_module():
+    import ratchet.regime as regime
+    root = Path(regime.__file__).parent
+    actual = [p.relative_to(root).as_posix() for p in regime._core_source_paths()]
+    expected = sorted(p.relative_to(root).as_posix() for p in root.rglob("*.py"))
+    assert actual == expected
+
+
+def test_framing_distinguishes_ambiguous_path_content_pairs(tmp_path, monkeypatch):
+    import ratchet.regime as regime
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "ab.py").write_bytes(b"c")
+    (second / "a.py").write_bytes(b"bc")
+    monkeypatch.setattr(regime, "CORE_SENTINELS", set())
+    monkeypatch.setattr(regime, "_core_root", lambda: first)
+    left = regime._core_fingerprint()
+    monkeypatch.setattr(regime, "_core_root", lambda: second)
+    assert left != regime._core_fingerprint()
+
+
+def test_core_fingerprint_rejects_sourceless_package(tmp_path, monkeypatch):
+    import ratchet.regime as regime
+    monkeypatch.setattr(regime, "_core_root", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="sourceful"):
+        regime._core_fingerprint()
+
+
+def test_regime_payload_records_runtime_versions(tmp_path):
+    import sys
+    import yaml
+    runtime = regime_payload(_cfg(tmp_path), "c1")["frozen"]["scoring_core"]["runtime"]
+    assert runtime == {
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "pyyaml": yaml.__version__,
+    }
+
+
+def test_core_fingerprint_is_relocation_stable_but_path_sensitive(tmp_path, monkeypatch):
+    import ratchet.regime as regime
+
+    def make_core(root, extra_name="extra.py"):
+        root.mkdir()
+        for name in regime.CORE_SENTINELS:
+            (root / name).write_text(f"# {name}\n")
+        (root / extra_name).write_text("VALUE = 1\n")
+
+    left, right = tmp_path / "left", tmp_path / "right"
+    make_core(left)
+    make_core(right)
+    monkeypatch.setattr(regime, "_core_root", lambda: left)
+    left_hash = regime._core_fingerprint()
+    monkeypatch.setattr(regime, "_core_root", lambda: right)
+    assert regime._core_fingerprint() == left_hash
+    (right / "extra.py").rename(right / "renamed.py")
+    assert regime._core_fingerprint() != left_hash
+
+
+def test_core_fingerprint_names_missing_sentinel(tmp_path, monkeypatch):
+    import ratchet.regime as regime
+    for name in regime.CORE_SENTINELS - {"bench.py"}:
+        (tmp_path / name).write_text(f"# {name}\n")
+    monkeypatch.setattr(regime, "_core_root", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="bench.py"):
+        regime._core_fingerprint()
 
 
 def test_truth_none_is_backward_compatible(tmp_path):

@@ -2,6 +2,7 @@
 loader (it can't be expressed in YAML), so the core never hits a network in tests.
 Missing predictions score 0 (a non-answer is the worst answer)."""
 from .within_tol import Objective
+from ..validation import finite_number
 
 
 def _no_judge(pred, rubric):
@@ -16,7 +17,8 @@ class Judge(Objective):
         self.rubric = rubric
 
     def score(self, preds, truth, ids):
-        scores = [float(self.judge_fn(preds[i], truth.get(i, self.rubric))) if i in preds else 0.0
+        scores = [finite_number(self.judge_fn(preds[i], truth.get(i, self.rubric)),
+                                f"judge output for {i}") if i in preds else 0.0
                   for i in ids]
         mean = sum(scores) / len(scores) if scores else 0.0
         return {"n": len(ids), "graded": sum(1 for i in ids if i in preds),

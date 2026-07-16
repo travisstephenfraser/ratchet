@@ -127,7 +127,17 @@ Record it: python -m ratchet.regime_cli --project projects/<name> --why '...' --
 
 Cross-regime results are never pooled. The version number points; the ledger explains. This turns "don't silently change the frozen params" from a discipline you have to remember into something the core won't let you skip.
 
-Guarded comparisons require prediction provenance. Ratchet-generated predictions carry a regime stamp; `verify` rejects unstamped files by default. `--allow-unstamped` is an explicit legacy or external-file migration path and prints a warning. It never permits a known regime mismatch.
+Guarded comparisons require prediction provenance. Ratchet-generated predictions carry a regime
+stamp; `verify` rejects unstamped files by default. Its `--allow-unstamped` flag is for legacy or
+external files: it warns and permits a missing stamp, but never a present mismatch.
+
+Direct library callers make the guard decision explicitly. Guarded `score_split(...)` calls pass a
+nonblank `expected_regime`. Passing `expected_regime=None` selects an unguarded low-level
+calculation; it is not a migration shortcut and must not be used for regression or holdout
+comparisons. `gap_report(...)` is always guarded and requires a nonblank `expected_regime`.
+The separate library keyword `allow_unstamped=True` is the unsafe legacy/external prediction
+override. It warns and permits only a missing stamp; a present mismatch still fails. The CLI
+spelling is `--allow-unstamped`, not `allow_unstamped`.
 
 ---
 

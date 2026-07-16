@@ -64,9 +64,19 @@ two runtime fields: Python major/minor and PyYAML version. Core source and path 
 plus changes to either recorded runtime value, are visible to the comparison guard.
 
 Guarded comparisons require prediction provenance. Ratchet-generated predictions carry a
-regime stamp; `verify` rejects unstamped files by default. `--allow-unstamped` is an explicit
-legacy or external-file migration path and prints a warning. It never permits a known
-regime mismatch.
+regime stamp; `verify` rejects unstamped files by default. The CLI escape hatch is
+`--allow-unstamped`: it warns and accepts a missing stamp from a legacy or external file,
+but still rejects a present mismatch.
+
+Code that calls the scorer directly must choose its provenance boundary. Pass a nonblank
+`expected_regime` to guarded `score_split(...)` calls. `expected_regime=None` requests an
+unguarded low-level calculation; it is not a migration shortcut and does not belong in
+regression or holdout comparisons. `gap_report(...)` has no unguarded form and requires a
+nonblank `expected_regime`.
+
+The library override is the `allow_unstamped=True` keyword, distinct from the CLI flag above.
+It is unsafe and intended only for legacy or external predictions: it warns and permits a
+missing stamp, never a present mismatch.
 
 ## Bench input and state
 

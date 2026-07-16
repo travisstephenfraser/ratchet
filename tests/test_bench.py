@@ -42,6 +42,22 @@ def test_bench_regime_includes_truth_fingerprint(tmp_path):
     assert relabeled[0]["regime"] != rows[0]["regime"]
 
 
+def test_bench_forwards_generated_regime_to_scoring(tmp_path, monkeypatch):
+    import ratchet.bench as bench_module
+
+    captured = {}
+
+    def score(preds, *args, expected_regime, **kwargs):
+        captured.update(stamp=preds.regime, expected=expected_regime)
+        return {"objective": 1.0}
+
+    monkeypatch.setattr(bench_module, "score_split", score)
+
+    rows = bench(_Project(tmp_path), ["good"], ["a"], {"a": {}}, {"a": "10"}, "c1")
+
+    assert captured == {"stamp": rows[0]["regime"], "expected": rows[0]["regime"]}
+
+
 def test_load_eval_ids_reads_frozen_set(tmp_path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "eval_set.txt").write_text("a\nc\n")

@@ -42,6 +42,7 @@ def bench(project, candidates, eval_ids, items, truth, constraints_version, poli
                 "likely a broken runner or a misaligned items dict")
         m = score_split(preds, truth, eval_ids, project.objective,
                         project.config.guards["anomaly_at"],
+                        expected_regime=regime,
                         min_coverage=project.config.guards.get("min_coverage"))
         rows.append({"candidate": cand, "objective": m["objective"], "metrics": m, "regime": regime})
     rows.sort(key=lambda r: r["objective"], reverse=(project.objective.direction == "max"))

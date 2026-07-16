@@ -95,14 +95,14 @@ def test_max_miss_rate_off_by_default():
 
 def test_hill_climb_finds_mutation():
     best = hill_climb(_Project(), ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"},
-                      rounds=3, patience=2)
+                      rounds=3, patience=2, regime="r1")
     assert "lenient" in best["instructions"] and best["metrics"]["objective"] == 1.0
 
 
 def test_policy_constraint_changes_prediction():
     # base candidate is strict, but an active policy makes the runner lenient -> perfect
     best = hill_climb(_Project(), ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"},
-                      rounds=1, patience=1, policy="be lenient")
+                      rounds=1, patience=1, policy="be lenient", regime="r1")
     assert best["metrics"]["objective"] == 1.0
 
 
@@ -113,26 +113,14 @@ def test_escalate_misaligned_items_raises(tmp_path):
         escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
                  ["a", "b"], ["c", "d"], {},  # empty items — zero coverage
                  {"a": "10", "b": "10", "c": "10", "d": "10"},
-                 log_path=tmp_path / "holdout_access.log")
-
-
-def test_escalate_wrong_split_preds_raises(tmp_path):
-    """Caller-supplied train_preds with keys outside train_ids -> ValueError."""
-    import pytest
-    with pytest.raises(ValueError, match="keys not in train_ids"):
-        escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
-                 ["a", "b"], ["c", "d"],
-                 {"a": {}, "b": {}, "c": {}, "d": {}},
-                 {"a": "10", "b": "10", "c": "10", "d": "10"},
-                 log_path=tmp_path / "holdout_access.log",
-                 train_preds={"c": "10", "d": "10"})  # holdout keys passed as train_preds
+                 log_path=tmp_path / "holdout_access.log", regime="r1")
 
 
 def test_escalate_gap_gate(tmp_path):
     gate = escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
                     ["a", "b"], ["c", "d"], {"a": {}, "b": {}, "c": {}, "d": {}},
                     {"a": "10", "b": "10", "c": "10", "d": "10"},
-                    log_path=tmp_path / "holdout_access.log")
+                    log_path=tmp_path / "holdout_access.log", regime="r1")
     assert gate["overfit"] is False
     assert (tmp_path / "holdout_access.log").exists()
 
@@ -154,7 +142,7 @@ def test_escalate_halts_on_systematic_holdout_parse_failure(tmp_path):
         escalate(_P(), {"cid": "x", "instructions": "grade", "metrics": {}},
                  ["a", "b"], ["h1", "h2"], items,
                  {"a": "10", "b": "10", "h1": "10", "h2": "10"},
-                 log_path=tmp_path / "holdout_access.log")
+                 log_path=tmp_path / "holdout_access.log", regime="r1")
 
 
 def test_max_miss_rate_halts_on_zero_attempts():
@@ -184,6 +172,78 @@ def test_run_candidate_over_stamps_regime():
     assert stamped.regime == "r1"
     unstamped = run_candidate_over(_Proj(), "cand", ["a"], {"a": {}})
     assert getattr(unstamped, "regime", None) is None
+
+
+def test_eval_forwards_generated_regime_to_scoring(monkeypatch):
+    import ratchet.loop as loop
+    from ratchet.verifier import Predictions
+
+    captured = {}
+
+    def run(*args, regime=None, **kwargs):
+        captured["generated"] = regime
+        return Predictions({"a": "10"}, regime=regime)
+
+    def score(*args, expected_regime, **kwargs):
+        captured["expected"] = expected_regime
+        return {"objective": 1.0, "anomaly": False, "split_coverage": 1.0}
+
+    monkeypatch.setattr(loop, "run_candidate_over", run)
+    monkeypatch.setattr(loop, "score_split", score)
+
+    loop._eval(_Project(), "candidate", ["a"], {"a": {}}, {"a": "10"}, "", "r1",
+               None, "base")
+
+    assert captured == {"generated": "r1", "expected": "r1"}
+
+
+@pytest.mark.parametrize("regime", [None, "", "  "])
+def test_hill_climb_requires_nonblank_regime(regime):
+    with pytest.raises(ValueError, match="regime"):
+        hill_climb(_Project(), ["a"], {"a": {}}, {"a": "10"},
+                   rounds=1, patience=1, regime=regime)
+
+
+def test_escalate_regenerates_both_splits_and_forwards_one_regime(tmp_path, monkeypatch):
+    import ratchet.loop as loop
+    from ratchet.verifier import Predictions
+
+    calls, captured = [], {}
+
+    def run(project, candidate, ids, items, policy="", *, max_miss_rate=None, regime=None):
+        calls.append((candidate, tuple(ids), regime))
+        return Predictions({item_id: "10" for item_id in ids}, regime=regime)
+
+    def gap(preds, truth, train, holdout, objective, guards, *, expected_regime,
+            allow_unstamped=False):
+        captured.update(type=type(preds), stamp=preds.regime, expected=expected_regime)
+        return {"gap": 0.0, "anomaly": False, "overfit": False, "regressed": False}
+
+    monkeypatch.setattr(loop, "run_candidate_over", run)
+    monkeypatch.setattr(loop, "gap_report", gap)
+    best = {"cid": "winner", "instructions": "grade lenient", "metrics": {}}
+
+    escalate(_Project(), best, ["a"], ["b"], {"a": {}, "b": {}},
+             {"a": "10", "b": "10"}, tmp_path / "access.log", regime="r1")
+
+    assert calls == [("grade lenient", ("a",), "r1"),
+                     ("grade lenient", ("b",), "r1")]
+    assert captured == {"type": Predictions, "stamp": "r1", "expected": "r1"}
+
+
+@pytest.mark.parametrize("regime", [None, "", "  "])
+def test_escalate_requires_regime_before_holdout_log(tmp_path, regime):
+    with pytest.raises(ValueError, match="regime"):
+        escalate(_Project(), {"cid": "x", "instructions": "x", "metrics": {}},
+                 ["a"], ["b"], {"a": {}, "b": {}}, {"a": "1", "b": "1"},
+                 tmp_path / "access.log", regime=regime)
+    assert not (tmp_path / "access.log").exists()
+
+
+def test_escalate_has_no_cached_train_predictions_parameter():
+    import inspect
+
+    assert "train_preds" not in inspect.signature(escalate).parameters
 
 
 @pytest.mark.parametrize("value", [-0.1, 1.1, float("nan")])
@@ -261,7 +321,7 @@ def test_hill_climb_halts_on_low_coverage_base():
     truth = {i: "10" for i in ids}
     import pytest
     with pytest.raises(ValueError, match="coverage"):
-        hill_climb(proj, ids, items, truth, rounds=1, patience=1)
+        hill_climb(proj, ids, items, truth, rounds=1, patience=1, regime="r1")
 
 
 def test_low_coverage_mutation_cannot_win():
@@ -280,6 +340,6 @@ def test_low_coverage_mutation_cannot_win():
     ids = [f"i{k}" for k in range(4)]
     items = {i: {"k": k} for k, i in enumerate(ids)}
     truth = {i: "10" for i in ids}
-    best = hill_climb(proj, ids, items, truth, rounds=1, patience=1)
+    best = hill_climb(proj, ids, items, truth, rounds=1, patience=1, regime="r1")
     assert best["instructions"] == "base"            # mae 0.0 mutation was disqualified
     assert best["metrics"]["mae"] == 1.0

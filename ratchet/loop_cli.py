@@ -29,18 +29,23 @@ def main():
     items, truth = proj.ingest()
     train, holdout = split_ids(list(truth), proj.config.salt, proj.config.holdout_pct)
     if args.establish_baseline:
+        provisional_regime = regime_hash(regime_payload(proj.config, cv, truth, items))
         max_miss = proj.config.guards.get("max_miss_rate")
         train_preds = run_candidate_over(proj, proj.base_candidate, train, items, policy,
-                                         max_miss_rate=max_miss)
+                                         max_miss_rate=max_miss, regime=provisional_regime)
         log_holdout_access(Path(args.project) / "holdout_access.log",
                            "establish_baseline", "base_candidate")
         holdout_preds = run_candidate_over(proj, proj.base_candidate, holdout, items, policy,
-                                           max_miss_rate=max_miss)
+                                           max_miss_rate=max_miss, regime=provisional_regime)
         min_cov = proj.config.guards.get("min_coverage")
         train_metrics = score_split(train_preds, truth, train, proj.objective,
-                                    proj.config.guards["anomaly_at"], min_coverage=min_cov)
+                                    proj.config.guards["anomaly_at"],
+                                    expected_regime=provisional_regime,
+                                    min_coverage=min_cov)
         holdout_metrics = score_split(holdout_preds, truth, holdout, proj.objective,
-                                      proj.config.guards["anomaly_at"], min_coverage=min_cov)
+                                      proj.config.guards["anomaly_at"],
+                                      expected_regime=provisional_regime,
+                                      min_coverage=min_cov)
         if train_metrics.get("low_coverage") or holdout_metrics.get("low_coverage"):
             print("cannot establish baseline below guards.min_coverage", file=sys.stderr)
             sys.exit(2)

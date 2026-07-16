@@ -61,6 +61,52 @@ def test_loop_cli_establishes_frozen_baseline_values(tmp_path):
     assert (proj / "holdout_access.log").exists()
 
 
+def test_loop_cli_baseline_establishment_uses_one_provisional_regime(
+        tmp_path, monkeypatch, capsys):
+    import ratchet.loop_cli as loop_cli
+    from ratchet.verifier import Predictions
+
+    config = type("Config", (), {
+        "salt": "salt", "holdout_pct": 50,
+        "guards": {"anomaly_at": 1.5},
+    })()
+    project = type("Project", (), {
+        "config": config,
+        "base_candidate": "base",
+        "objective": object(),
+        "ingest": staticmethod(lambda: ({"a": {}, "b": {}}, {"a": "10", "b": "10"})),
+    })()
+    generated, scored = [], []
+
+    def run(project, candidate, ids, items, policy="", *, max_miss_rate=None, regime=None):
+        generated.append((tuple(ids), regime))
+        return Predictions({item_id: "10" for item_id in ids}, regime=regime)
+
+    def score(preds, truth, ids, objective, anomaly_at, *, expected_regime, **kwargs):
+        scored.append((tuple(ids), preds.regime, expected_regime))
+        return {"objective": 1.0, "split_coverage": 1.0, "anomaly": False}
+
+    monkeypatch.setattr(sys, "argv", [
+        "ratchet-loop", "--project", str(tmp_path), "--establish-baseline",
+    ])
+    monkeypatch.setattr(loop_cli, "load_project", lambda _path: project)
+    monkeypatch.setattr(loop_cli, "load_constraints", lambda _path: "policy")
+    monkeypatch.setattr(loop_cli, "current_version", lambda _path: "c1")
+    monkeypatch.setattr(loop_cli, "split_ids", lambda *args: (["a"], ["b"]))
+    monkeypatch.setattr(loop_cli, "regime_payload", lambda config, cv, truth, items: "payload")
+    monkeypatch.setattr(loop_cli, "regime_hash", lambda payload: "provisional-r1")
+    monkeypatch.setattr(loop_cli, "run_candidate_over", run)
+    monkeypatch.setattr(loop_cli, "score_split", score)
+    monkeypatch.setattr(loop_cli, "log_holdout_access", lambda *args: None)
+
+    loop_cli.main()
+
+    assert generated == [(("a",), "provisional-r1"), (("b",), "provisional-r1")]
+    assert scored == [(("a",), "provisional-r1", "provisional-r1"),
+                      (("b",), "provisional-r1", "provisional-r1")]
+    assert "baseline:" in capsys.readouterr().out
+
+
 def test_bench_cli_runs(tmp_path):
     r = _run(["ratchet.bench_cli", "--project", str(_copy_toy(tmp_path))])
     assert r.returncode == 0 and "regime" in r.stdout.lower()

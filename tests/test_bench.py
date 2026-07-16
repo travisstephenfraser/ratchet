@@ -187,3 +187,20 @@ def test_bench_raises_when_a_candidate_produces_no_predictions(tmp_path):
     proj.runner = _R()
     with pytest.raises(ValueError, match="0/2 .* produced predictions"):
         bench(proj, ["cand"], ["a", "b"], {"a": {}, "b": {}}, {"a": "10", "b": "10"}, "c1")
+
+
+def test_bench_surfaces_unscorable_mae_for_zero_predictions(tmp_path):
+    from ratchet.adapter import Unparseable, UnscorableCandidate
+
+    proj = _Project(tmp_path)
+    proj.objective = WithinTol(tol=0.5, climb="mae")
+
+    class _R:
+        def run(self, candidate, item, policy=""):
+            raise Unparseable("garbage")
+
+    proj.runner = _R()
+    with pytest.raises(UnscorableCandidate, match="zero predictions for MAE split"):
+        bench(proj, ["cand"], ["a", "b"], {"a": {}, "b": {}},
+              {"a": "10", "b": "10"}, "c1", out_dir=tmp_path)
+    assert not list(tmp_path.glob("bench_*.json"))

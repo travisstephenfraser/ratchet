@@ -76,14 +76,14 @@ def bench(project, candidates, eval_ids, items, truth, constraints_version, poli
     rows = []
     for cand in candidates:
         preds = run_candidate_over(project, cand, eval_ids, items, policy, regime=regime)
-        if eval_ids and not preds:
-            raise ValueError(
-                f"bench: 0/{len(eval_ids)} items produced predictions for a candidate — "
-                "likely a broken runner or a misaligned items dict")
         m = score_split(preds, truth, eval_ids, project.objective,
                         project.config.guards["anomaly_at"],
                         expected_regime=regime,
                         min_coverage=project.config.guards.get("min_coverage"))
+        if eval_ids and not preds:
+            raise ValueError(
+                f"bench: 0/{len(eval_ids)} items produced predictions for a candidate — "
+                "likely a broken runner or a misaligned items dict")
         rows.append({"candidate": cand, "objective": m["objective"], "metrics": m, "regime": regime})
     rows.sort(key=lambda r: r["objective"], reverse=(project.objective.direction == "max"))
     if out_dir is not None:

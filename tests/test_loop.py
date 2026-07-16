@@ -109,11 +109,57 @@ def test_policy_constraint_changes_prediction():
 def test_escalate_misaligned_items_raises(tmp_path):
     """Zero-coverage case: items dict shares no keys with the splits -> ValueError."""
     import pytest
+    log_path = tmp_path / "holdout_access.log"
     with pytest.raises(ValueError, match="0/2 train items produced predictions"):
         escalate(_Project(), {"cid": "x", "instructions": "grade lenient", "metrics": {}},
                  ["a", "b"], ["c", "d"], {},  # empty items — zero coverage
                  {"a": "10", "b": "10", "c": "10", "d": "10"},
-                 log_path=tmp_path / "holdout_access.log", regime="r1")
+                 log_path=log_path, regime="r1")
+    assert not log_path.exists()
+
+
+def test_escalate_surfaces_unscorable_mae_for_zero_train_predictions(tmp_path):
+    class _P(_Project):
+        def __init__(self):
+            super().__init__()
+            self.objective = WithinTol(tol=0.5, climb="mae")
+
+        class _R:
+            def run(self, candidate, item, policy=""):
+                if item["split"] == "train":
+                    raise Unparseable("garbage")
+                return 10
+
+        runner = _R()
+
+    log_path = tmp_path / "holdout_access.log"
+    with pytest.raises(UnscorableCandidate, match="zero predictions for MAE split"):
+        escalate(_P(), {"cid": "x", "instructions": "grade", "metrics": {}},
+                 ["a"], ["h"], {"a": {"split": "train"}, "h": {"split": "holdout"}},
+                 {"a": "10", "h": "10"}, log_path=log_path, regime="r1")
+    assert not log_path.exists()
+
+
+def test_escalate_surfaces_unscorable_mae_for_zero_holdout_predictions(tmp_path):
+    class _P(_Project):
+        def __init__(self):
+            super().__init__()
+            self.objective = WithinTol(tol=0.5, climb="mae")
+
+        class _R:
+            def run(self, candidate, item, policy=""):
+                if item["split"] == "holdout":
+                    raise Unparseable("garbage")
+                return 10
+
+        runner = _R()
+
+    log_path = tmp_path / "holdout_access.log"
+    with pytest.raises(UnscorableCandidate, match="zero predictions for MAE split"):
+        escalate(_P(), {"cid": "x", "instructions": "grade", "metrics": {}},
+                 ["a"], ["h"], {"a": {"split": "train"}, "h": {"split": "holdout"}},
+                 {"a": "10", "h": "10"}, log_path=log_path, regime="r1")
+    assert log_path.exists()
 
 
 def test_escalate_gap_gate(tmp_path):
@@ -259,7 +305,7 @@ def test_hill_climb_revalidates_rounds(value):
                    rounds=value, patience=1, regime="r1")
 
 
-def test_hill_climb_skips_only_an_unscorable_mutation(monkeypatch):
+def test_hill_climb_skips_only_an_unscorable_mutation(monkeypatch, capsys):
     import ratchet.loop as loop
     project = _Project()
     project.mutations = [("empty", lambda _base: "empty")]
@@ -275,6 +321,9 @@ def test_hill_climb_skips_only_an_unscorable_mutation(monkeypatch):
                            {"a": "10", "b": "10"}, rounds=1, patience=1,
                            regime="r1")
     assert best["instructions"] == project.base_candidate
+    rejection = capsys.readouterr().err
+    assert "empty" in rejection
+    assert "zero predictions for MAE split" in rejection
 
 
 def test_hill_climb_does_not_hide_unscorable_base(monkeypatch):

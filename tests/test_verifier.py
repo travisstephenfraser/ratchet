@@ -344,6 +344,15 @@ def test_score_split_matching_regime_is_silent():
     assert m["objective"] == 1.0 and not caught
 
 
+@pytest.mark.parametrize("expected_regime", ["", "  "])
+def test_score_split_rejects_blank_expected_regime(expected_regime):
+    preds = Predictions({"a": "10"}, regime=expected_regime)
+
+    with pytest.raises(ValueError, match="expected_regime must be a nonblank string"):
+        score_split(preds, {"a": "10"}, ["a"], WithinTol(tol=0.5),
+                    anomaly_at=0.98, expected_regime=expected_regime)
+
+
 def test_expected_regime_matrix():
     matching = Predictions({"a": "1"}, regime="r1")
     wrong = Predictions({"a": "1"}, regime="r0")

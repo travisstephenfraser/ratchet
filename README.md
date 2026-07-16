@@ -139,7 +139,7 @@ For a contributor checkout:
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m pytest          # 256 tests, the full self-test
+python -m pytest          # 261 tests, the full self-test
 ```
 
 The source checkout ships a self-contained **toy project** (`projects/toy/`) with 40 deterministic synthetic exams and a synthetic grader, so the whole pipeline runs with no model and no network:
@@ -215,7 +215,7 @@ ratchet/              core (do not edit per-project)
 projects/
   _template/            copy this to start a new project
   toy/                  self-contained synthetic e2e example
-tests/                  256 tests, the self-test
+tests/                  261 tests, the self-test
 docs/PORTING.md         the porting guide
 ```
 

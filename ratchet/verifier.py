@@ -33,29 +33,6 @@ def read_preds_regime(path):
     return None
 
 
-LEGACY_PREDS_WARNING = (
-    "WARNING: predictions file {path} carries no regime stamp (legacy or externally "
-    "generated). Scoring it anyway, but ratchet CANNOT confirm these predictions were "
-    "produced under the current regime.\n"
-    "  RISK: if they were generated under a different model, prompt, eval set, or label "
-    "set, this score is comparing across incomparable rules, a silently wrong number that "
-    "can PASS a gate it should fail, or FAIL one it should pass.\n"
-    "  FIX: regenerate the predictions with the current project prediction generator so "
-    "the file is stamped, "
-    "or re-run generation and scoring under one regime."
-)
-
-
-def preds_regime_gate(stamped, current):
-    """Compare a preds file's stamped regime against the current one. Returns the legacy
-    warning string when the file is unstamped, None when the stamp matches, and raises
-    RegimeMismatch when they differ (the caller exits non-zero)."""
-    if stamped is None:
-        return LEGACY_PREDS_WARNING
-    guard_compare(stamped, current)  # raises RegimeMismatch on mismatch
-    return None
-
-
 class Predictions(dict):
     """Prediction map carrying the regime it was produced under (None = unstamped).
     A dict subclass so every existing consumer and plain-dict caller keeps working;
@@ -82,6 +59,7 @@ def check_expected_regime(preds, expected_regime, *, allow_unstamped=False):
     missing stamp allowed-but-loud. Silent when the caller passes no expectation."""
     if expected_regime is None:
         return
+    expected_regime = nonblank(expected_regime, "expected_regime")
     stamped = getattr(preds, "regime", None)
     if stamped is None:
         if not allow_unstamped:

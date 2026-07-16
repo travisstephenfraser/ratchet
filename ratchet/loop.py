@@ -101,7 +101,8 @@ def hill_climb(project, train_ids, items, truth, rounds, patience,
             try:
                 m = _eval(project, cand, train_ids, items, truth, policy, regime, out_dir,
                           f"r{r+1}:{name}")
-            except UnscorableCandidate:
+            except UnscorableCandidate as exc:
+                print(f"  reject mutation {name} ({cid}): {exc}", file=sys.stderr)
                 continue
             if m["metrics"].get("low_coverage"):
                 continue  # a low-coverage mutation may not win on a coverage-blind scalar
@@ -118,12 +119,18 @@ def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
         project, best["instructions"], train_ids, items, policy,
         max_miss_rate=project.config.guards.get("max_miss_rate"), regime=regime)
     if train_ids and not train_preds:
+        score_split(train_preds, truth, train_ids, project.objective,
+                    project.config.guards["anomaly_at"], expected_regime=regime,
+                    min_coverage=project.config.guards.get("min_coverage"))
         raise ValueError(f"escalate: 0/{len(train_ids)} train items produced predictions")
     log_holdout_access(log_path, "escalation_gate", best["cid"])
     holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy,
                                        max_miss_rate=project.config.guards.get("max_miss_rate"),
                                        regime=regime)
     if holdout_ids and not holdout_preds:
+        score_split(holdout_preds, truth, holdout_ids, project.objective,
+                    project.config.guards["anomaly_at"], expected_regime=regime,
+                    min_coverage=project.config.guards.get("min_coverage"))
         raise ValueError(f"escalate: 0/{len(holdout_ids)} holdout items produced predictions")
     preds = Predictions({**train_preds, **holdout_preds}, regime=regime)
     return gap_report(preds, truth, train_ids, holdout_ids, project.objective,

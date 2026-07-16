@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: python -m compileall -q ratchet projects/toy projects/_template
+      - run: python -m build --wheel
+      - run: python scripts/check_wheel.py archive dist/ratchet-0.1.0-py3-none-any.whl .
+      - name: Record source core hash
+        id: source
+        run: echo "core=$(python -c 'from ratchet.regime import _core_fingerprint; print(_core_fingerprint())')" >> "$GITHUB_OUTPUT"
+      - run: python -m venv /tmp/ratchet-wheel-env
+      - run: /tmp/ratchet-wheel-env/bin/python -m pip install dist/ratchet-0.1.0-py3-none-any.whl
+      - run: /tmp/ratchet-wheel-env/bin/python -m pip check
+      - name: Check installed modules outside checkout
+        working-directory: /tmp
+        run: /tmp/ratchet-wheel-env/bin/python "$GITHUB_WORKSPACE/scripts/check_wheel.py" installed /tmp/ratchet-wheel-env --expected-core "${{ steps.source.outputs.core }}"
+      - name: Exercise installed CLI modules
+        working-directory: /tmp
+        run: |
+          for module in constraints_cli regime_cli verify loop_cli bench_cli; do
+            /tmp/ratchet-wheel-env/bin/python -m "ratchet.$module" --help
+          done
+      - name: Run installed-wheel toy flows
+        working-directory: /tmp
+        run: |
+          cp -R "$GITHUB_WORKSPACE/projects/toy" /tmp/ratchet-toy
+          /tmp/ratchet-wheel-env/bin/python -m ratchet.bench_cli --project /tmp/ratchet-toy
+          /tmp/ratchet-wheel-env/bin/python -m ratchet.loop_cli --project /tmp/ratchet-toy --escalate

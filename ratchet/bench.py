@@ -1,6 +1,7 @@
 """Frozen-param bench: evaluate fixed candidates under one regime with no search.
 A configured eval-set file is required and validated; an explicit null selects all
 ingested ids. Every row carries the same truth-, item-, and scoring-aware regime hash."""
+from collections.abc import Mapping
 from pathlib import Path
 
 from .verifier import score_split
@@ -9,29 +10,68 @@ from .regime import regime_payload, regime_hash
 from . import results
 
 
+class BenchInputError(ValueError):
+    pass
+
+
+def _materialize(value, field):
+    if value is None or isinstance(value, (str, bytes, Mapping)):
+        raise BenchInputError(f"{field} must be an iterable, not {type(value).__name__}")
+    try:
+        return list(value)
+    except TypeError as exc:
+        raise BenchInputError(f"{field} must be an iterable") from exc
+
+
+def normalize_candidates(value):
+    candidates = _materialize(value, "bench.candidates")
+    if not candidates:
+        raise BenchInputError("bench requires at least one candidate")
+    if any(not isinstance(candidate, str) or not candidate.strip() for candidate in candidates):
+        raise BenchInputError("bench candidates must be nonblank strings")
+    return candidates
+
+
+def normalize_eval_ids(value, truth):
+    ids = _materialize(value, "bench eval ids")
+    if not ids:
+        raise BenchInputError("bench eval set must not be empty")
+    if any(not isinstance(item_id, str) or not item_id.strip() for item_id in ids):
+        raise BenchInputError("bench eval ids must be nonblank strings")
+    seen, duplicates = set(), set()
+    for item_id in ids:
+        if item_id in seen:
+            duplicates.add(item_id)
+        seen.add(item_id)
+    if duplicates:
+        raise BenchInputError(f"bench eval set contains duplicate ids: {sorted(duplicates)}")
+    unknown = sorted(item_id for item_id in ids if item_id not in truth)
+    if unknown:
+        raise BenchInputError(f"bench eval set contains unknown ids: {unknown}")
+    return ids
+
+
 def load_eval_ids(project, truth):
     if "eval_set" not in project.config.bench:
-        raise ValueError("bench.eval_set must be a path or explicit null")
+        raise BenchInputError("bench.eval_set must be a path or explicit null")
     configured = project.config.bench["eval_set"]
     if configured is None:
-        return list(truth)
+        return normalize_eval_ids(list(truth), truth)
     if not isinstance(configured, str) or not configured.strip():
-        raise ValueError("bench.eval_set must be a path or explicit null")
+        raise BenchInputError("bench.eval_set must be a path or explicit null")
     p = Path(project.config.project_dir) / configured
     if not p.exists():
-        raise FileNotFoundError(f"configured bench eval set does not exist: {p}")
-    wanted = [line.strip() for line in p.read_text().splitlines() if line.strip()]
-    if not wanted:
-        raise ValueError(f"configured bench eval set is empty: {p}")
-    unknown = [i for i in wanted if i not in truth]
-    if unknown:
-        raise ValueError(f"configured bench eval set contains unknown ids: {unknown}")
-    return wanted
+        raise BenchInputError(f"configured bench eval set does not exist: {p}")
+    try:
+        wanted = [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    except OSError as exc:
+        raise BenchInputError(f"could not read configured bench eval set: {p}") from exc
+    return normalize_eval_ids(wanted, truth)
 
 
 def bench(project, candidates, eval_ids, items, truth, constraints_version, policy="", out_dir=None):
-    if not eval_ids:
-        raise ValueError("bench eval set must not be empty")
+    candidates = normalize_candidates(candidates)
+    eval_ids = normalize_eval_ids(eval_ids, truth)
     regime = regime_hash(regime_payload(project.config, constraints_version, truth, items))
     rows = []
     for cand in candidates:

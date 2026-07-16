@@ -114,6 +114,45 @@ def test_bench_cli_runs(tmp_path):
     assert r.returncode == 0 and "regime" in r.stdout.lower()
 
 
+def test_bench_cli_rejects_before_regime_or_result_write(tmp_path):
+    proj = _copy_toy(tmp_path)
+    path = proj / "config.yaml"
+    path.write_text(path.read_text().replace(
+        "candidates: [strict, lenient]", "candidates: []"))
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode == 2
+    assert "bench input error" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (proj / ".regime").exists()
+    assert not (proj / "regime_log.jsonl").exists()
+    assert not list(proj.glob("bench_*.json"))
+
+
+def test_bench_cli_does_not_launder_runner_programming_error(tmp_path):
+    proj = _copy_toy(tmp_path)
+    (proj / "runner.py").write_text(
+        "class Runner:\n"
+        "    def run(self, candidate, item, policy=''):\n"
+        "        raise ValueError('programmer bug')\n")
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode != 0
+    assert "Traceback" in result.stderr
+    assert "programmer bug" in result.stderr
+
+
+def test_bench_cli_does_not_launder_runner_bench_input_error(tmp_path):
+    proj = _copy_toy(tmp_path)
+    (proj / "runner.py").write_text(
+        "from ratchet.bench import BenchInputError\n"
+        "class Runner:\n"
+        "    def run(self, candidate, item, policy=''):\n"
+        "        raise BenchInputError('runner bug')\n")
+    result = _run(["ratchet.bench_cli", "--project", str(proj)])
+    assert result.returncode != 0
+    assert "Traceback" in result.stderr
+    assert "runner bug" in result.stderr
+
+
 # The ledger rationale is the audit trail for a sanctioned regime bump; a blank
 # --why/--impact defeats it, so the CLI must refuse before touching the project.
 

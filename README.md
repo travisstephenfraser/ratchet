@@ -44,7 +44,9 @@ projects/<name>/      # the per-project layer: you write this
 
 The core has no knowledge of your domain. A project supplies five project files; the core supplies the split discipline, the guards, the objectives, the search loop, the persistence, and the versioning. Porting to a new domain means copying `projects/_template/` and filling in those files, never touching `ratchet/`.
 
-The five project files (contracts are defined by shape; see `ratchet/adapter.py`):
+The table below spans three core modules. `ratchet/adapter.py` defines the runner, ingest,
+and mutation shapes; `ratchet/config.py` validates `config.yaml`; `ratchet/project.py`
+loads the project modules and `base.txt`.
 
 | File | Contract |
 |---|---|
@@ -113,7 +115,7 @@ A good mutation adds a *criterion*, a *field*, or a *tool*, not a louder nag. Th
 
 A **regime** is the fingerprint of everything that determines whether two results are comparable: the salt, objective and params, holdout %, guards and frozen baselines, model, derived truth, evaluated item contents, runner source, active core scoring source/version, bench-set contents, declared environment knobs, and constraints version. Item inputs must therefore be JSON-serializable; unsupported objects fail loudly instead of producing an unstable fingerprint.
 
-The core fingerprint covers every `ratchet/**/*.py` path and its bytes, with length framing between each path and content block. It also includes the package version and requires named source files to be present. The regime records the Python major/minor and PyYAML version separately, so a runtime change cannot reuse the old comparison state.
+The core fingerprint covers every `ratchet/**/*.py` path and its bytes, with length framing between each path and content block. It also includes the package version and requires named source files to be present. The regime records two runtime fields: Python major/minor and PyYAML version. A change to either recorded value changes the regime fingerprint.
 
 Any scoring command computes the current regime and compares it to the last one on disk. If it changed and no ledger entry explains why, the command **exits 2 and refuses to run**:
 
@@ -197,8 +199,9 @@ cp -r projects/_template projects/my-eval
 
 ```
 ratchet/              core (do not edit per-project)
-  adapter.py            the five seam contracts a project satisfies
-  config.py             typed load of config.yaml
+  adapter.py            runner, ingest, and mutation shapes
+  config.py             validation and typed load of config.yaml
+  project.py            project module and base.txt loading
   prompt.py             structured policy / instructions / data assembly
   verifier.py           split, scoring, anomaly + overfit guards
   loop.py               hill-climb + escalation gate

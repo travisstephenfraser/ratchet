@@ -60,8 +60,8 @@ The version number points; the ledger explains. Cross-regime results are never p
 
 The core-source fingerprint hashes every `ratchet/**/*.py` path and its bytes, with length
 framing between fields, and requires named source files to exist. The regime also records
-the Python major/minor and PyYAML version. That makes source, path, and runtime changes
-visible to the comparison guard.
+two runtime fields: Python major/minor and PyYAML version. Core source and path changes,
+plus changes to either recorded runtime value, are visible to the comparison guard.
 
 Guarded comparisons require prediction provenance. Ratchet-generated predictions carry a
 regime stamp; `verify` rejects unstamped files by default. `--allow-unstamped` is an explicit

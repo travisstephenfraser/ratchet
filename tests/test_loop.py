@@ -140,6 +140,65 @@ def test_escalate_surfaces_unscorable_mae_for_zero_train_predictions(tmp_path):
     assert not log_path.exists()
 
 
+def test_escalate_scores_nonempty_train_before_holdout_access(tmp_path):
+    class _P(_Project):
+        def __init__(self):
+            super().__init__()
+            self.objective = self._Objective()
+            self.runner = self._Runner()
+
+        class _Objective:
+            direction = "max"
+
+            def score(self, preds, truth, ids):
+                raise ValueError("train objective failed")
+
+        class _Runner:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, candidate, item, policy=""):
+                self.calls.append(item["split"])
+                return 10
+
+    project = _P()
+    log_path = tmp_path / "holdout_access.log"
+
+    with pytest.raises(ValueError, match="train objective failed"):
+        escalate(project, {"cid": "x", "instructions": "grade", "metrics": {}},
+                 ["a"], ["h"], {"a": {"split": "train"}, "h": {"split": "holdout"}},
+                 {"a": "10", "h": "10"}, log_path=log_path, regime="r1")
+
+    assert project.runner.calls == ["train"]
+    assert not log_path.exists()
+
+
+def test_escalate_reuses_its_single_train_score_in_final_report(tmp_path):
+    class _P(_Project):
+        def __init__(self):
+            super().__init__()
+            self.objective = self._Objective()
+
+        class _Objective:
+            direction = "max"
+
+            def __init__(self):
+                self.calls = []
+
+            def score(self, preds, truth, ids):
+                self.calls.append(tuple(ids))
+                return {"objective": 0.8 if ids == ["a"] else 0.7}
+
+    project = _P()
+    report = escalate(
+        project, {"cid": "x", "instructions": "grade", "metrics": {}},
+        ["a"], ["h"], {"a": {}, "h": {}}, {"a": "10", "h": "10"},
+        log_path=tmp_path / "holdout_access.log", regime="r1")
+
+    assert project.objective.calls == [("a",), ("h",)]
+    assert report["train"]["objective"] == 0.8
+
+
 def test_escalate_surfaces_unscorable_mae_for_zero_holdout_predictions(tmp_path):
     class _P(_Project):
         def __init__(self):
@@ -260,13 +319,20 @@ def test_escalate_regenerates_both_splits_and_forwards_one_regime(tmp_path, monk
         calls.append((candidate, tuple(ids), regime))
         return Predictions({item_id: "10" for item_id in ids}, regime=regime)
 
-    def gap(preds, truth, train, holdout, objective, guards, *, expected_regime,
-            allow_unstamped=False):
-        captured.update(type=type(preds), stamp=preds.regime, expected=expected_regime)
-        return {"gap": 0.0, "anomaly": False, "overfit": False, "regressed": False}
+    class Builder:
+        def __init__(self, truth, train, holdout, objective, guards, *, expected_regime,
+                     allow_unstamped=False):
+            captured["expected"] = expected_regime
+
+        def score_train(self, preds):
+            captured.update(train_type=type(preds), train_stamp=preds.regime)
+
+        def finish(self, preds):
+            captured.update(type=type(preds), stamp=preds.regime)
+            return {"gap": 0.0, "anomaly": False, "overfit": False, "regressed": False}
 
     monkeypatch.setattr(loop, "run_candidate_over", run)
-    monkeypatch.setattr(loop, "gap_report", gap)
+    monkeypatch.setattr(loop, "_GapReportBuilder", Builder)
     best = {"cid": "winner", "instructions": "grade lenient", "metrics": {}}
 
     escalate(_Project(), best, ["a"], ["b"], {"a": {}, "b": {}},
@@ -274,7 +340,13 @@ def test_escalate_regenerates_both_splits_and_forwards_one_regime(tmp_path, monk
 
     assert calls == [("grade lenient", ("a",), "r1"),
                      ("grade lenient", ("b",), "r1")]
-    assert captured == {"type": Predictions, "stamp": "r1", "expected": "r1"}
+    assert captured == {
+        "expected": "r1",
+        "train_type": Predictions,
+        "train_stamp": "r1",
+        "type": Predictions,
+        "stamp": "r1",
+    }
 
 
 @pytest.mark.parametrize("regime", [None, "", "  "])

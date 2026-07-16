@@ -146,42 +146,91 @@ def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime,
     return out
 
 
+class _GapReportBuilder:
+    """Private two-phase scorer used when holdout access must follow train scoring."""
+
+    def __init__(self, truth, train, holdout, objective, guards, *, expected_regime,
+                 allow_unstamped=False):
+        self.expected_regime = nonblank(expected_regime, "expected_regime")
+        self.allow_unstamped = allow_unstamped
+        self.truth = truth
+        self.train = train
+        self.holdout = holdout
+        self.objective = objective
+        self.guards = mapping(guards, "guards")
+        overlap = set(train) & set(holdout)
+        if overlap:
+            raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
+        self.overfit_gap = finite_number(
+            self.guards.get("overfit_gap"), "guards.overfit_gap")
+        if self.overfit_gap < 0:
+            raise ValueError("guards.overfit_gap must be >= 0")
+        self.min_coverage = self.guards.get("min_coverage")
+        self.baselines = validate_baselines(self.guards)
+        self._checked_predictions = set()
+        self._train_values = None
+        self._train_result = None
+
+    def _check_predictions(self, preds):
+        identity = id(preds)
+        if identity not in self._checked_predictions:
+            check_expected_regime(
+                preds, self.expected_regime, allow_unstamped=self.allow_unstamped)
+            self._checked_predictions.add(identity)
+
+    def score_train(self, preds):
+        if self._train_result is not None:
+            raise RuntimeError("train split has already been scored")
+        self._check_predictions(preds)
+        self._train_values = {
+            item_id: preds[item_id] for item_id in self.train if item_id in preds
+        }
+        self._train_result = score_split(
+            preds, self.truth, self.train, self.objective, self.guards["anomaly_at"],
+            expected_regime=None, min_coverage=self.min_coverage,
+            baseline_objective=self.baselines["train"])
+
+    def finish(self, preds):
+        if self._train_result is None:
+            raise RuntimeError("train split must be scored before the gap report is finished")
+        self._check_predictions(preds)
+        train_values = {
+            item_id: preds[item_id] for item_id in self.train if item_id in preds
+        }
+        if train_values != self._train_values:
+            raise ValueError("train predictions changed after train scoring")
+        holdout_result = score_split(
+            preds, self.truth, self.holdout, self.objective, self.guards["anomaly_at"],
+            expected_regime=None, min_coverage=self.min_coverage,
+            baseline_objective=self.baselines["holdout"])
+        train_result = self._train_result
+        gap = (train_result["objective"] - holdout_result["objective"]
+               if self.objective.direction == "max"
+               else holdout_result["objective"] - train_result["objective"])
+        gap = finite_number(gap, "observed train/holdout gap")
+        out = {
+            "train": train_result, "holdout": holdout_result, "gap": gap,
+            "overfit": gap > self.overfit_gap,
+            "anomaly": train_result["anomaly"] or holdout_result["anomaly"],
+            "train_anomaly": train_result["anomaly"],
+            "holdout_anomaly": holdout_result["anomaly"],
+            "train_coverage": train_result["split_coverage"],
+            "holdout_coverage": holdout_result["split_coverage"],
+            "regressed": train_result["regressed"] or holdout_result["regressed"],
+        }
+        if self.min_coverage is not None:
+            out["low_coverage"] = (
+                train_result["low_coverage"] or holdout_result["low_coverage"])
+        return out
+
+
 def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime,
                allow_unstamped=False):
-    expected_regime = nonblank(expected_regime, "expected_regime")
-    check_expected_regime(preds, expected_regime, allow_unstamped=allow_unstamped)
-    guards = mapping(guards, "guards")
-    overlap = set(train) & set(holdout)
-    if overlap:
-        raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
-    overfit_gap = finite_number(guards.get("overfit_gap"), "guards.overfit_gap")
-    if overfit_gap < 0:
-        raise ValueError("guards.overfit_gap must be >= 0")
-    min_coverage = guards.get("min_coverage")
-    baselines = validate_baselines(guards)
-    train_result = score_split(
-        preds, truth, train, objective, guards["anomaly_at"], expected_regime=None,
-        min_coverage=min_coverage, baseline_objective=baselines["train"])
-    holdout_result = score_split(
-        preds, truth, holdout, objective, guards["anomaly_at"], expected_regime=None,
-        min_coverage=min_coverage, baseline_objective=baselines["holdout"])
-    gap = (train_result["objective"] - holdout_result["objective"]
-           if objective.direction == "max"
-           else holdout_result["objective"] - train_result["objective"])
-    gap = finite_number(gap, "observed train/holdout gap")
-    out = {
-        "train": train_result, "holdout": holdout_result, "gap": gap,
-        "overfit": gap > overfit_gap,
-        "anomaly": train_result["anomaly"] or holdout_result["anomaly"],
-        "train_anomaly": train_result["anomaly"],
-        "holdout_anomaly": holdout_result["anomaly"],
-        "train_coverage": train_result["split_coverage"],
-        "holdout_coverage": holdout_result["split_coverage"],
-        "regressed": train_result["regressed"] or holdout_result["regressed"],
-    }
-    if min_coverage is not None:
-        out["low_coverage"] = train_result["low_coverage"] or holdout_result["low_coverage"]
-    return out
+    builder = _GapReportBuilder(
+        truth, train, holdout, objective, guards, expected_regime=expected_regime,
+        allow_unstamped=allow_unstamped)
+    builder.score_train(preds)
+    return builder.finish(preds)
 
 
 def log_holdout_access(log_path, caller, predictions_path):

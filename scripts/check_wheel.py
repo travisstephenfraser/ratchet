@@ -10,11 +10,26 @@ from pathlib import Path
 
 def archive(wheel, root):
     root = Path(root).resolve()
-    source = {p.relative_to(root).as_posix() for p in (root / "ratchet").rglob("*.py")}
+    source = {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in (root / "ratchet").rglob("*.py")
+    }
     with zipfile.ZipFile(wheel) as zf:
-        packaged = {n for n in zf.namelist() if n.startswith("ratchet/") and n.endswith(".py")}
+        packaged = {
+            name: zf.read(name)
+            for name in zf.namelist()
+            if name.startswith("ratchet/") and name.endswith(".py")
+        }
         if packaged != source:
-            raise AssertionError(f"wheel/source Python mismatch: {packaged ^ source}")
+            missing = sorted(source.keys() - packaged.keys())
+            extra = sorted(packaged.keys() - source.keys())
+            changed = sorted(
+                name for name in source.keys() & packaged.keys()
+                if source[name] != packaged[name]
+            )
+            raise AssertionError(
+                "wheel/source Python mismatch: "
+                f"missing={missing}; extra={extra}; changed={changed}")
         metadata_name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
         metadata = email.message_from_bytes(zf.read(metadata_name))
     if metadata["Name"] != "ratchet":

@@ -6,7 +6,12 @@ import hashlib
 import sys
 
 from .adapter import Unparseable, UnscorableCandidate
-from .verifier import score_split, gap_report, log_holdout_access, Predictions
+from .verifier import (
+    Predictions,
+    _GapReportBuilder,
+    log_holdout_access,
+    score_split,
+)
 from .validation import nonblank, rate, whole_number
 from . import results
 
@@ -115,23 +120,21 @@ def hill_climb(project, train_ids, items, truth, rounds, patience,
 def escalate(project, best, train_ids, holdout_ids, items, truth, log_path,
              policy="", *, regime):
     regime = nonblank(regime, "regime")
+    gap_builder = _GapReportBuilder(
+        truth, train_ids, holdout_ids, project.objective, project.config.guards,
+        expected_regime=regime)
     train_preds = run_candidate_over(
         project, best["instructions"], train_ids, items, policy,
         max_miss_rate=project.config.guards.get("max_miss_rate"), regime=regime)
+    gap_builder.score_train(train_preds)
     if train_ids and not train_preds:
-        score_split(train_preds, truth, train_ids, project.objective,
-                    project.config.guards["anomaly_at"], expected_regime=regime,
-                    min_coverage=project.config.guards.get("min_coverage"))
         raise ValueError(f"escalate: 0/{len(train_ids)} train items produced predictions")
     log_holdout_access(log_path, "escalation_gate", best["cid"])
     holdout_preds = run_candidate_over(project, best["instructions"], holdout_ids, items, policy,
                                        max_miss_rate=project.config.guards.get("max_miss_rate"),
                                        regime=regime)
-    if holdout_ids and not holdout_preds:
-        score_split(holdout_preds, truth, holdout_ids, project.objective,
-                    project.config.guards["anomaly_at"], expected_regime=regime,
-                    min_coverage=project.config.guards.get("min_coverage"))
-        raise ValueError(f"escalate: 0/{len(holdout_ids)} holdout items produced predictions")
     preds = Predictions({**train_preds, **holdout_preds}, regime=regime)
-    return gap_report(preds, truth, train_ids, holdout_ids, project.objective,
-                      project.config.guards, expected_regime=regime)
+    report = gap_builder.finish(preds)
+    if holdout_ids and not holdout_preds:
+        raise ValueError(f"escalate: 0/{len(holdout_ids)} holdout items produced predictions")
+    return report

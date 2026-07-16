@@ -46,6 +46,22 @@ def test_overfit_and_anomaly_surfaced_at_top_level():
     assert r["anomaly"] is True  # train within_tol 1.0 > 0.95 -> surfaced at top level
 
 
+@pytest.mark.parametrize("overfit_gap", [
+    float("nan"), float("inf"), float("-inf"), -0.1,
+])
+def test_gap_report_revalidates_overfit_gap_for_direct_callers(overfit_gap):
+    truth = {"a": "10", "b": "10", "c": "10", "d": "10"}
+    preds = {"a": "10", "b": "10", "c": "20", "d": "20"}
+    guards = {
+        "anomaly_at": 0.95,
+        "overfit_gap": overfit_gap,
+        "baseline": {"train": 0.0, "holdout": 0.0},
+    }
+    with pytest.raises(ValueError, match=r"guards\.overfit_gap"):
+        gap_report(preds, truth, ["a", "b"], ["c", "d"],
+                   WithinTol(tol=0.5), guards)
+
+
 def test_holdout_only_anomaly_is_surfaced_at_top_level():
     obj = WithinTol(tol=0.5)
     truth = {"a": "10", "b": "10", "h": "10"}

@@ -166,6 +166,9 @@ def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=Non
 
 
 def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regime=None):
+    overfit_gap = finite_number(guards.get("overfit_gap"), "guards.overfit_gap")
+    if overfit_gap < 0:
+        raise ValueError("guards.overfit_gap must be >= 0")
     overlap = set(train) & set(holdout)
     if overlap:
         raise ValueError(f"train and holdout must be disjoint; shared ids: {sorted(overlap)}")
@@ -179,7 +182,7 @@ def gap_report(preds, truth, train, holdout, objective, guards, *, expected_regi
     gap = (tr["objective"] - ho["objective"]) if objective.direction == "max" \
         else (ho["objective"] - tr["objective"])
     out = {"train": tr, "holdout": ho, "gap": gap,
-           "overfit": gap > guards["overfit_gap"],
+           "overfit": gap > overfit_gap,
            "anomaly": tr["anomaly"] or ho["anomaly"],
            "train_anomaly": tr["anomaly"], "holdout_anomaly": ho["anomaly"],
            "train_coverage": tr["split_coverage"], "holdout_coverage": ho["split_coverage"]}

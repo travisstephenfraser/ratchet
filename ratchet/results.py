@@ -8,7 +8,17 @@ from pathlib import Path
 from .verifier import preds_regime_header
 
 
+def _json(value):
+    try:
+        return json.dumps(value, indent=2, default=str, allow_nan=False)
+    except ValueError as exc:
+        raise ValueError(
+            f"result contains a non-finite value and is not valid JSON: {exc}"
+        ) from exc
+
+
 def write_candidate(out_dir, cid, instructions, preds, metrics, regime):
+    metrics_json = _json({**metrics, "regime": regime, "cid": cid})
     cand_dir = Path(out_dir) / "candidates"
     cand_dir.mkdir(parents=True, exist_ok=True)
     (cand_dir / f"{cid}.txt").write_text(instructions)
@@ -18,8 +28,7 @@ def write_candidate(out_dir, cid, instructions, preds, metrics, regime):
         w.writerow(["anon_id", "score"])
         for anon, score in preds.items():
             w.writerow([anon, score])
-    (cand_dir / f"{cid}.metrics.json").write_text(
-        json.dumps({**metrics, "regime": regime, "cid": cid}, indent=2, default=str))
+    (cand_dir / f"{cid}.metrics.json").write_text(metrics_json)
     return cand_dir / f"{cid}.metrics.json"
 
 
@@ -37,5 +46,5 @@ def append_loop_log(out_dir, cid, label, metrics):
 
 def write_bench(out_dir, regime, rows):
     path = Path(out_dir) / f"bench_{regime}.json"
-    path.write_text(json.dumps(rows, indent=2, default=str))
+    path.write_text(_json(rows))
     return path

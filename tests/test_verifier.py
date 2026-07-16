@@ -16,8 +16,14 @@ def test_split_stable_and_disjoint():
 
 @pytest.mark.parametrize("holdout_pct", [0, 100, -1, 101])
 def test_split_rejects_invalid_holdout_percentage(holdout_pct):
-    with pytest.raises(ValueError, match="between 0 and 100"):
+    with pytest.raises(ValueError, match="holdout_pct"):
         split_ids(["a", "b"], "salt", holdout_pct)
+
+
+@pytest.mark.parametrize("value", [True, 0, 100, 30.5, float("nan")])
+def test_split_ids_revalidates_holdout_for_direct_callers(value):
+    with pytest.raises(ValueError, match="holdout_pct"):
+        split_ids(["a"], "salt", value)
 
 
 def test_anomaly_direction_max():
@@ -65,6 +71,79 @@ def test_score_split_rejects_bad_direction():
             return {"objective": 0.5, "n": 1, "graded": 1}
     with pytest.raises(ValueError, match="unknown objective direction"):
         score_split({"a": "1"}, {"a": "1"}, ["a"], _BadObj(), anomaly_at=0.95)
+
+
+def test_score_split_rejects_scalar_objective_result():
+    class _Scalar:
+        direction = "max"
+
+        def score(self, preds, truth, ids):
+            return 1.0
+
+    with pytest.raises(ValueError, match="mapping"):
+        score_split({"a": "1"}, {"a": "1"}, ["a"], _Scalar(), anomaly_at=0.95)
+
+
+def test_score_split_requires_objective_key():
+    class _MissingObjective:
+        direction = "max"
+
+        def score(self, preds, truth, ids):
+            return {"graded": 1}
+
+    with pytest.raises(ValueError, match="requires an 'objective' key"):
+        score_split({"a": "1"}, {"a": "1"}, ["a"], _MissingObjective(), anomaly_at=0.95)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), True, "bad"])
+def test_score_split_rejects_invalid_observed_objective(value):
+    class Objective:
+        direction = "min"
+
+        def score(self, preds, truth, ids):
+            return {"objective": value}
+
+    with pytest.raises(ValueError, match="objective result must be a finite number"):
+        score_split({"a": "1"}, {"a": "1"}, ["a"], Objective(),
+                    anomaly_at=-1.0, expected_regime=None, baseline_objective=0.0)
+
+
+def test_verify_cli_reports_unscorable_candidate_and_exits_two(monkeypatch, capsys, tmp_path):
+    import sys
+    import ratchet.verify as verify
+    from ratchet.adapter import UnscorableCandidate
+
+    config = type("Config", (), {
+        "salt": "salt", "holdout_pct": 30,
+        "guards": {"anomaly_at": -1.0, "baseline": {"train": 0.0}},
+    })()
+    project = type("Project", (), {
+        "config": config,
+        "objective": WithinTol(tol=0.5, climb="mae"),
+        "ingest": staticmethod(lambda: ({"a": {}}, {"a": "10"})),
+    })()
+
+    monkeypatch.setattr(sys, "argv", [
+        "ratchet-verify", "--project", str(tmp_path),
+        "--predictions", str(tmp_path / "preds.csv"),
+    ])
+    monkeypatch.setattr(verify, "load_project", lambda _path: project)
+    monkeypatch.setattr(verify, "current_version", lambda _path: "v1")
+    monkeypatch.setattr(verify, "enforce_regime", lambda *args: "r1")
+    monkeypatch.setattr(verify, "load_column", lambda _path: type(
+        "Predictions", (dict,), {"regime": "r1"})())
+    monkeypatch.setattr(verify, "split_ids", lambda *args: (["a"], []))
+    monkeypatch.setattr(verify, "validate_baselines", lambda *args: {"train": 0.0})
+
+    def unscorable(*args, **kwargs):
+        raise UnscorableCandidate("zero predictions for MAE split")
+
+    monkeypatch.setattr(verify, "score_split", unscorable)
+
+    with pytest.raises(SystemExit) as exc:
+        verify.main()
+    assert exc.value.code == 2
+    assert "unscorable candidate" in capsys.readouterr().err
 
 
 def test_score_split_slices_truth_to_ids():

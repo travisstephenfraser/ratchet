@@ -4,6 +4,9 @@ which scalar the loop climbs. Missing predictions are misses: denominator is the
 id list."""
 import statistics
 
+from ..adapter import UnscorableCandidate
+from ..validation import finite_number
+
 
 class Objective:
     direction = "max"
@@ -14,7 +17,9 @@ class Objective:
 
 class WithinTol(Objective):
     def __init__(self, tol=2.0, climb="within"):
-        self.tol = float(tol)
+        self.tol = finite_number(tol, "tol")
+        if self.tol < 0:
+            raise ValueError("tol must be >= 0")
         if climb not in ("within", "mae"):
             raise ValueError(f"climb must be within|mae, got {climb!r}")
         self.climb = climb
@@ -22,12 +27,18 @@ class WithinTol(Objective):
 
     def score(self, preds, truth, ids):
         n = len(ids)
-        deltas = [float(preds[i]) - float(truth[i]) for i in ids if i in preds]
+        deltas = [
+            finite_number(preds[i], f"prediction for {i}")
+            - finite_number(truth[i], f"truth for {i}")
+            for i in ids if i in preds
+        ]
         abs_deltas = [abs(d) for d in deltas]
         graded = len(deltas)
         within = sum(1 for d in abs_deltas if d <= self.tol) / n if n else 0.0
         mae = statistics.mean(abs_deltas) if abs_deltas else None
-        objective = within if self.climb == "within" else (mae if mae is not None else float("inf"))
+        if self.climb == "mae" and mae is None:
+            raise UnscorableCandidate("zero predictions for MAE split")
+        objective = within if self.climb == "within" else mae
         return {
             "n": n, "graded": graded, "coverage": graded / n if n else 0.0,
             "mae": mae, "mean_delta": statistics.mean(deltas) if deltas else None,

@@ -1,3 +1,5 @@
+import pytest
+
 from ratchet.objectives.judge import Judge
 
 
@@ -18,6 +20,12 @@ def test_missing_pred_scores_zero():
 
 
 def test_default_judge_raises_if_called():
-    import pytest
     with pytest.raises(RuntimeError):
         Judge().score({"a": "x"}, {"a": "x"}, ["a"])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_judge_rejects_nonfinite_output(value):
+    with pytest.raises(ValueError, match="finite"):
+        Judge(judge_fn=lambda pred, rubric: value).score(
+            {"a": "answer"}, {"a": "rubric"}, ["a"])

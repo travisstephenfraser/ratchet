@@ -1,4 +1,7 @@
 import json
+
+import pytest
+
 from ratchet.results import write_candidate, append_loop_log, write_bench
 from ratchet.verifier import read_preds_regime, load_column
 
@@ -25,6 +28,11 @@ def test_write_bench(tmp_path):
     p = write_bench(tmp_path, "reg9", [{"candidate": "good", "objective": 1.0}])
     assert p.name == "bench_reg9.json"
     assert json.loads(p.read_text())[0]["candidate"] == "good"
+
+
+def test_result_writer_rejects_nonstandard_json(tmp_path):
+    with pytest.raises(ValueError, match="valid JSON"):
+        write_bench(tmp_path, "r1", [{"objective": float("nan")}])
 
 
 def test_write_candidate_stamps_preds_regime(tmp_path):

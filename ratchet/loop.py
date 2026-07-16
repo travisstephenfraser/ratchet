@@ -5,8 +5,9 @@ holdout regression/anomaly/coverage/overfit gate. Works for any Runner + Objecti
 import hashlib
 import sys
 
-from .adapter import Unparseable
+from .adapter import Unparseable, UnscorableCandidate
 from .verifier import score_split, gap_report, log_holdout_access, Predictions
+from .validation import rate, whole_number
 from . import results
 
 
@@ -20,6 +21,7 @@ def better(a, b, direction):
 
 def run_candidate_over(project, candidate, ids, items, policy="", *, max_miss_rate=None,
                        regime=None):
+    max_miss_rate = None if max_miss_rate is None else rate(max_miss_rate, "guards.max_miss_rate")
     preds, attempted, misses = {}, 0, 0
     for i in ids:
         if i not in items:
@@ -70,6 +72,8 @@ def _eval(project, candidate, ids, items, truth, policy, regime, out_dir, label,
 
 def hill_climb(project, train_ids, items, truth, rounds, patience,
                policy="", regime="", out_dir=None):
+    rounds = whole_number(rounds, "search.rounds", minimum=1)
+    patience = whole_number(patience, "search.patience", minimum=0)
     # Guard the base only: it is the known-good reference, so a high miss rate there means
     # a broken model/harness (halt), whereas a bad mutation is allowed to just score low.
     best = _eval(project, project.base_candidate, train_ids, items, truth, policy, regime, out_dir, "base",
@@ -91,7 +95,11 @@ def hill_climb(project, train_ids, items, truth, rounds, patience,
             if cid in seen:
                 continue
             seen.add(cid)
-            m = _eval(project, cand, train_ids, items, truth, policy, regime, out_dir, f"r{r+1}:{name}")
+            try:
+                m = _eval(project, cand, train_ids, items, truth, policy, regime, out_dir,
+                          f"r{r+1}:{name}")
+            except UnscorableCandidate:
+                continue
             if m["metrics"].get("low_coverage"):
                 continue  # a low-coverage mutation may not win on a coverage-blind scalar
             if better(m["metrics"]["objective"], best["metrics"]["objective"], direction):

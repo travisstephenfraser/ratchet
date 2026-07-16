@@ -1,4 +1,6 @@
-from ratchet.adapter import Unparseable
+import pytest
+
+from ratchet.adapter import Unparseable, UnscorableCandidate
 from ratchet.loop import cand_id, better, hill_climb, escalate, run_candidate_over
 from ratchet.objectives.within_tol import WithinTol
 
@@ -182,6 +184,49 @@ def test_run_candidate_over_stamps_regime():
     assert stamped.regime == "r1"
     unstamped = run_candidate_over(_Proj(), "cand", ["a"], {"a": {}})
     assert getattr(unstamped, "regime", None) is None
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.1, float("nan")])
+def test_run_candidate_revalidates_max_miss_rate(value):
+    with pytest.raises(ValueError, match="max_miss_rate"):
+        run_candidate_over(_Project(), "x", ["a"], {"a": {}}, max_miss_rate=value)
+
+
+@pytest.mark.parametrize("value", [True, 0, 1.5])
+def test_hill_climb_revalidates_rounds(value):
+    with pytest.raises(ValueError, match="search.rounds"):
+        hill_climb(_Project(), ["a"], {"a": {}}, {"a": "10"},
+                   rounds=value, patience=1, regime="r1")
+
+
+def test_hill_climb_skips_only_an_unscorable_mutation(monkeypatch):
+    import ratchet.loop as loop
+    project = _Project()
+    project.mutations = [("empty", lambda _base: "empty")]
+    original = loop._eval
+
+    def fake_eval(project, candidate, *args, **kwargs):
+        if candidate == "empty":
+            raise UnscorableCandidate("zero predictions for MAE split")
+        return original(project, candidate, *args, **kwargs)
+
+    monkeypatch.setattr(loop, "_eval", fake_eval)
+    best = loop.hill_climb(project, ["a", "b"], {"a": {}, "b": {}},
+                           {"a": "10", "b": "10"}, rounds=1, patience=1,
+                           regime="r1")
+    assert best["instructions"] == project.base_candidate
+
+
+def test_hill_climb_does_not_hide_unscorable_base(monkeypatch):
+    import ratchet.loop as loop
+
+    def fail(*args, **kwargs):
+        raise UnscorableCandidate("zero predictions")
+
+    monkeypatch.setattr(loop, "_eval", fail)
+    with pytest.raises(UnscorableCandidate):
+        loop.hill_climb(_Project(), ["a"], {"a": {}}, {"a": "10"},
+                        rounds=1, patience=1, regime="r1")
 
 
 def _mk_proj(coverage_runner, min_coverage):

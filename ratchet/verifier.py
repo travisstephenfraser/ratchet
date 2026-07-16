@@ -9,6 +9,7 @@ import warnings
 from datetime import datetime, timezone
 
 from .regime import guard_compare, RegimeMismatch
+from .validation import finite_number, mapping, rate, whole_number
 
 
 PREDS_REGIME_PREFIX = "# ratchet-regime: "
@@ -102,8 +103,7 @@ def load_column(path, value_field=None):
 
 
 def split_ids(ids, salt, holdout_pct):
-    if not 0 < holdout_pct < 100:
-        raise ValueError(f"holdout_pct must be between 0 and 100 (exclusive), got {holdout_pct}")
+    holdout_pct = whole_number(holdout_pct, "holdout_pct", minimum=1, maximum=99)
     train, holdout = [], []
     for anon in sorted(ids):
         bucket = int(hashlib.sha256(f"{salt}:{anon}".encode()).hexdigest()[:8], 16) % 100
@@ -135,6 +135,8 @@ def validate_baselines(guards, splits=("train", "holdout")):
 
 def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=None,
                 min_coverage=None, baseline_objective=None):
+    anomaly_at = finite_number(anomaly_at, "guards.anomaly_at")
+    min_coverage = None if min_coverage is None else rate(min_coverage, "guards.min_coverage")
     if not ids:
         raise ValueError("split must not be empty; add more labeled items or change the split salt")
     check_expected_regime(preds, expected_regime)
@@ -142,8 +144,11 @@ def score_split(preds, truth, ids, objective, anomaly_at, *, expected_regime=Non
         raise ValueError(f"unknown objective direction: {objective.direction!r}")
     # hand the objective only the labels for the ids being scored, never the whole vault
     scoped_truth = {i: truth[i] for i in ids if i in truth}
-    base = objective.score(preds, scoped_truth, ids)
-    val = base["objective"]
+    base = mapping(objective.score(preds, scoped_truth, ids), "objective result")
+    if "objective" not in base:
+        raise ValueError("objective result requires an 'objective' key")
+    val = finite_number(base["objective"], "objective result")
+    base["objective"] = val
     anomaly = (val > anomaly_at) if objective.direction == "max" else (val < anomaly_at)
     # Coverage is computed by the CORE from (preds, ids) — never read from the
     # objective's report — so a coverage-blind objective (mae) cannot Goodhart it.

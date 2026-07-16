@@ -1,9 +1,10 @@
-import argparse, json
+import argparse
 from pathlib import Path
 from .project import load_project
 from .bench import bench, load_eval_ids
 from .constraints import load_constraints, current_version
 from .regime_state import enforce_regime
+from .results import _json
 
 
 def main():
@@ -18,8 +19,8 @@ def main():
     eval_ids = load_eval_ids(proj, truth)
     rows = bench(proj, proj.config.bench["candidates"], eval_ids, items, truth, cv,
                  policy=policy, out_dir=Path(args.project))
-    print(json.dumps([{"candidate": r["candidate"], "objective": r["objective"],
-                       "regime": r["regime"]} for r in rows], indent=2))
+    print(_json([{"candidate": r["candidate"], "objective": r["objective"],
+                  "regime": r["regime"]} for r in rows]))
 
 
 if __name__ == "__main__":
